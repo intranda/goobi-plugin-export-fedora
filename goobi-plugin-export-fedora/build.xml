@@ -1,0 +1,255 @@
+<?xml version="1.0"?>
+
+<!-- ADJUST PROJECT NAME, FILENAME AND INCLUDED CLASSES FOR JENKINS IF YOU COPY THIS FILE TO A NEW PROJECT-->
+
+<project name="Goobi Export Plugin" basedir="." default="deploy">
+
+	<!-- ================================= 
+	        properties             
+	     ================================= -->
+	<property name="filename" value="FedoraExportPlugin" />
+	<property name="dir.build" value="bin" />
+	<property name="dir.src" value="src" />
+	<property name="dir.test" value="test/src" />
+	<property name="dir.deploy" value="deploy" />
+	<property name="dir.javadoc" value="doc" />
+	<property name="pluginFolderWin" value="C:/Goobi/plugins/export/" />
+	<property name="pluginFolderUnix" value="/opt/digiverso/goobi/plugins/export/" />
+	<property name="dir.pmd" value="/opt/pmd" />
+
+
+	<path id="classpath">
+	    <fileset dir="/opt/digiverso/goobilibs/lib"/>
+		<fileset dir="/opt/digiverso/libs" />
+	</path>
+
+	<path id="classpath-test">
+	    <fileset dir="/opt/digiverso/goobilibs/lib"/>
+		<fileset dir="/opt/digiverso/libs" />
+		<pathelement location="${dir.build}" />
+		<pathelement location="/opt/digiverso/junit/junit.jar" />
+		<pathelement location="/opt/digiverso/junit/hamcrest-all-1.3.jar" />
+	</path>
+
+	<path id="pmd.classpath">
+		<fileset dir="${dir.pmd}">
+			<include name="*.jar" />
+		</fileset>
+	</path>
+
+	<taskdef name="pmd" classname="net.sourceforge.pmd.ant.PMDTask" classpathref="pmd.classpath">
+	</taskdef>
+
+	
+	<tstamp>
+		<format property="tstamped-file-name" pattern="yyyy-MM-dd" locale="en,UK" />
+	</tstamp>
+
+	<!-- ================================= 
+         General targets: clean, createDirs, git.revision
+	     ================================= -->
+
+	<!-- Clean up generated and compiled files. -->
+	<target name="clean" description="Clean up generated and compiled files.">
+		<echo>Cleaning up workspace...</echo>
+		<!--<delete dir="${dir.build}" />-->
+		<delete dir="${dir.deploy}" />
+
+	</target>
+
+	<!-- Create needed directories -->
+	<target name="createDirs" description="Create needed directories.">
+		<echo>Creating needed directories...</echo>
+		<mkdir dir="${dir.build}" />
+		<mkdir dir="${dir.deploy}" />
+		<mkdir dir="testreports" />
+
+	</target>
+
+	<!-- Store git revision in internal variable -->
+	<target name="git.revision" description="Store git revision in ${repository.version}">
+		<exec executable="git" outputproperty="git.revision" failifexecutionfails="false" errorproperty="">
+			<arg value="describe" />
+			<arg value="--tags" />
+			<arg value="--always" />
+			<arg value="HEAD" />
+		</exec>
+		<condition property="repository.version" value="${git.revision}" else="unknown">
+			<and>
+				<isset property="git.revision" />
+				<length string="${git.revision}" trim="yes" length="0" when="greater" />
+			</and>
+		</condition>
+		<echo> Git revision is: ${git.revision}</echo>
+	</target>
+
+	<!-- ================================= 
+         copy all files to final places
+	     ================================= -->
+
+	<!--  copyToPluginFolder, depending on OS -->
+	<target name="copyToPluginFolder" depends="linux,win32">
+		<antcall target="clean" />
+	</target>
+	<target name="linux" if="isUnix">
+		<echo>Using Linux path: ${pluginFolderUnix}</echo>
+		<copy tofile="${pluginFolderUnix}/${filename}-${git.revision}.jar" file="${dir.deploy}/${filename}-${git.revision}.jar" overwrite="true" />
+	</target>
+	<target name="win32" if="isWindows">
+		<echo>Using Windows path: ${pluginFolderWin}</echo>
+		<copy tofile="${pluginFolderWin}$${filename}-${git.revision}.jar" file="${dir.deploy}/${filename}-${git.revision}.jar" overwrite="true" />
+	</target>
+
+	<!-- ================================= 
+         Compile the sources
+	     ================================= -->
+
+	<target name="compile">
+		<echo>Using jenkins compiler</echo>
+		<javac destdir="${dir.build}" includeantruntime="false" target="7" encoding="UTF8" source="7" debug="true" debuglevel="lines,vars,source" >
+			<classpath refid="classpath" />
+			<compilerarg value="-Xlint" />
+			<src path="src" />
+		</javac>
+	</target>
+
+	<!-- ================================= 
+         Include the libraries
+	     ================================= -->
+
+
+
+	<target name="libs">
+		<pathconvert property="libs.project" pathsep=" ">
+			<mapper>
+				<chainedmapper>
+					<flattenmapper />
+					<globmapper from="*" to="lib/*" />
+				</chainedmapper>
+			</mapper>
+			<path>
+				<fileset dir="${dir.build}/de/intranda/goobi/plugins">
+					<include name="*.class" />
+				</fileset>
+			</path>
+		</pathconvert>
+	</target>
+
+	<!-- ================================= 
+         Compile the jar
+	     ================================= -->
+
+	<target name="jar">
+		<jar destfile="${dir.deploy}/${filename}-${git.revision}.jar">
+			<manifest>
+				<attribute name="Main-Class" value="de.intranda.goobi.PluginInfo" />
+				<attribute name="Class-Path" value="${libs.project}" />
+			</manifest>
+			<fileset dir="${dir.build}" />
+		</jar>
+	</target>
+
+	<!-- ================================= 
+	              RUNNABLE JAR
+		 ================================= -->
+
+	<target name="jar.runnable" depends="git.revision">
+		<echo>Compile sources ...</echo>
+		<antcall target="compile" />
+
+		<copy file="${dir.src}/de/intranda/goobi/plugins.txt" todir="${dir.build}/de/intranda/goobi" />
+		
+		<echo>Generate Plugin list</echo>
+		<pathconvert property="plugins.project" pathsep=" ">
+			<mapper>
+				<chainedmapper>
+					<flattenmapper />
+					<globmapper from="*" to="*" />
+				</chainedmapper>
+			</mapper>
+			<path>
+				<!-- lib.home contains all jar files in several subdirectories -->
+				<fileset dir="${dir.build}/de/intranda/goobi/plugins">
+					<include name="*.class" />
+				</fileset>
+			</path>
+		</pathconvert>
+
+		<antcall target="libs" />
+		<echo file="${dir.build}/de/intranda/goobi/plugins.txt">${plugins.project}  -----------------------------------------------------  Git-revision: ${git.revision}</echo>
+
+		<echo>Generating jar file: ${dir.deploy}/${filename}-${git.revision}.jar</echo>
+		<antcall target="jar" />
+	</target>
+
+	<!-- ================================= 
+                  DISTRIBUTION
+	     ================================= -->
+
+	<!-- Run all targets in appropiate order for clean compile-->
+	<target name="dist" depends="javadoc, junit, pmd, jar.runnable" description="Creating everything for Jenkins.">
+
+
+	</target>
+
+	<target name="javadoc">
+		<delete dir="${dir.javadoc}" />
+		<mkdir dir="${dir.javadoc}" />
+		<!-- create javadocs -->
+		<javadoc destdir="${dir.javadoc}" sourcepath="${dir.src}" Author="true" version="true" Use="true" noindex="true" Windowtitle="intranda
+	Licenceserver JavaDoc References" Doctitle="intranda Plugin JavaDoc References" bottom="Copyright 2014, inranda GmbH" encoding="UTF8">
+			<classpath refid="classpath">
+			</classpath>
+		</javadoc>
+	</target>
+
+	<target name="junit" depends="clean, createDirs, compile">
+
+		<copy file="${dir.src}/de/intranda/goobi/plugins.txt" todir="${dir.build}/de/intranda/goobi" />
+		
+		<javac destdir="${dir.build}" includeantruntime="false" debug="true">
+			<classpath refid="classpath-test" />
+			<compilerarg value="-Xlint" />
+			<src path="${dir.test}" />
+			<src path="${dir.src}" />
+		</javac>
+
+
+
+		<junit haltonerror="true" haltonfailure="true">
+			<classpath refid="classpath-test" />
+			<formatter type="xml" usefile="true" />
+			<test name="de.intranda.goobi.AllTests" todir="testreports" />
+		</junit>
+
+
+	</target>
+
+	<!-- ================================= 
+                  DEPLOY
+	     ================================= -->
+
+	<!-- Default target that compiles the jar from eclipse and copies it to the right folder depending on operating system-->
+	<target name="deploy" depends="jar.runnable" description="Default target for Eclipse compiling with correct deployment">
+		<condition property="isWindows">
+			<os family="windows" />
+		</condition>
+		<condition property="isUnix">
+			<os family="unix" />
+		</condition>
+		<antcall target="copyToPluginFolder" />
+		<echo>intranda... alles ist gut!</echo>
+	</target>
+
+	<target name="pmd">
+		<pmd>
+			<sourceLanguage name="java" version="1.7" />
+			<ruleset>/opt/pmd-bin-5.0.2/conf/intranda_pmd.xml</ruleset>
+			<formatter type="xml" toFile="pmd.xml" />
+			<fileset dir="${dir.src}">
+				<include name="**/*.java" />
+			</fileset>
+		</pmd>
+	</target>
+
+</project>
