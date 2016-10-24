@@ -216,4 +216,8 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     }
 
+    public String getDescription() {
+        return getTitle();
+    }
+    
 }
