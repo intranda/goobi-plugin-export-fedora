@@ -1,7 +1,6 @@
 package de.intranda.goobi.plugins;
 
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -103,10 +102,10 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             for (Path file : filesToIngest) {
                 try {
                     InputStream inputStream = new FileInputStream(file.toFile());
-                    Entity<InputStream> fileEntity = Entity.entity(inputStream, "image/tiff");
+                    Entity<InputStream> fileEntity = Entity.entity(inputStream, Files.probeContentType(file));
                     Response fileIngestResponse = ingestLocation.request().header("filename", file.getFileName().toString()).post(fileEntity);
                     imageDataList.add(fileIngestResponse.getHeaderString("location"));
-                } catch (FileNotFoundException e) {
+                } catch ( IOException e) {
                     log.error(e);
                 }
             }
