@@ -49,6 +49,7 @@ import ugh.exceptions.MetadataTypeNotAllowedException;
 import ugh.exceptions.PreferencesException;
 import ugh.exceptions.ReadException;
 import ugh.exceptions.TypeNotAllowedForParentException;
+import ugh.exceptions.UGHException;
 import ugh.exceptions.WriteException;
 
 @PluginImplementation
@@ -89,7 +90,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         return startExport(process, process.getProjekt().getDmsImportRootPath());
     }
 
-    private void ingestData(String folder) {
+    private void ingestData(String folder, Process process, String destination) {
         Client client = ClientBuilder.newClient();
         WebTarget fedoraBase = client.target(fedoraUrl);
         WebTarget ingest = fedoraBase.path("fcr:tx");
@@ -104,24 +105,30 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     InputStream inputStream = new FileInputStream(file.toFile());
                     Entity<InputStream> fileEntity = Entity.entity(inputStream, Files.probeContentType(file));
                     Response fileIngestResponse = ingestLocation.request().header("filename", file.getFileName().toString()).post(fileEntity);
-                    imageDataList.add(fileIngestResponse.getHeaderString("location"));
+                    imageDataList.add(fileIngestResponse.getHeaderString("location").replaceAll(rootUrl, fedoraUrl));
                 } catch ( IOException e) {
                     log.error(e);
                 }
             }
+            // hier 
+        try {
+            Path metsfile =   createMetsFile( process,  destination);
+            InputStream inputStream = new FileInputStream(metsfile.toFile());
+            Entity<InputStream> fileEntity = Entity.entity(inputStream, "application/xml");
+            ingestLocation.request().header("filename", metsfile.getFileName().toString()).post(fileEntity);
+        } catch (UGHException | DAOException | InterruptedException | IOException | SwapException e) {
+            log.error(e);
+        }
+        
+            
+            ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
         }
     }
 
-    @Override
-    public boolean startExport(Process process, String destination) throws IOException, InterruptedException, DocStructHasNoTypeException,
-            PreferencesException, WriteException, MetadataTypeNotAllowedException, ExportFileException, UghHelperException, ReadException,
-            SwapException, DAOException, TypeNotAllowedForParentException {
-        fedoraUrl =  process.getProjekt().getDmsImportImagesPath();
+    private Path createMetsFile(Process process, String destination) throws UGHException, DAOException, InterruptedException, IOException,SwapException{
         Prefs prefs = process.getRegelsatz().getPreferences();
         Fileformat fileformat = process.readMetadataFile();
 
-        Path imageFolder = Paths.get(process.getImagesTifDirectory(true));
-        ingestData(imageFolder.toString());
 
         ExportFileformat mm = MetadatenHelper.getExportFileformatByName(process.getProjekt().getFileFormatDmsExport(), process.getRegelsatz());
         mm.setWriteLocal(false);
@@ -180,8 +187,20 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         mm.write(tempFile.toString());
 
         overwriteUrls(tempFile.toString());
+        Path metsFilePath = Paths.get(destination, process.getTitel() + ".xml");
+        Files.copy(tempFile, metsFilePath, NIOFileUtils.STANDARD_COPY_OPTIONS);
+        return metsFilePath;
+    }
 
-        Files.copy(tempFile, Paths.get(destination, process.getTitel() + ".xml"), NIOFileUtils.STANDARD_COPY_OPTIONS);
+    @Override
+    public boolean startExport(Process process, String destination) throws IOException, InterruptedException, DocStructHasNoTypeException,
+            PreferencesException, WriteException, MetadataTypeNotAllowedException, ExportFileException, UghHelperException, ReadException,
+            SwapException, DAOException, TypeNotAllowedForParentException {
+        fedoraUrl = process.getProjekt().getDmsImportImagesPath();
+        Path imageFolder = Paths.get(process.getImagesTifDirectory(true));
+        ingestData(imageFolder.toString(), process, destination);
+        
+       
 
         Helper.setMeldung(null, process.getTitel() + ": ", "ExportFinished");
 
@@ -218,5 +237,5 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     public String getDescription() {
         return getTitle();
     }
-    
+
 }
