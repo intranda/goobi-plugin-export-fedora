@@ -4,6 +4,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -16,8 +17,14 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.Response;
 
+import org.apache.commons.io.IOUtils;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.log4j.Logger;
 import org.goobi.beans.Process;
+import org.goobi.beans.Ruleset;
 import org.goobi.production.enums.PluginType;
 import org.goobi.production.plugin.interfaces.IExportPlugin;
 import org.goobi.production.plugin.interfaces.IPlugin;
@@ -60,7 +67,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     private static final String PLUGIN_NAME = "FedoraExport";
 
-    private String fedoraUrl = "http://localhost:8081/rest";
+    private String fedoraUrl = "http://localhost:8088/rest";
 
     private List<String> imageDataList = new ArrayList<>();
     private String rootUrl;
@@ -91,44 +98,150 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     }
 
     private void ingestData(String folder, Process process, String destination) {
+        String identifier = ""; // TODO
+
         Client client = ClientBuilder.newClient();
         WebTarget fedoraBase = client.target(fedoraUrl);
-        WebTarget ingest = fedoraBase.path("fcr:tx");
-        Response response = ingest.request().post(null);
-        if (response.getStatus() < 400) {
-            String location = response.getHeaderString("location");
-            WebTarget ingestLocation = client.target(location);
-            rootUrl = location;
-            List<Path> filesToIngest = NIOFileUtils.listFiles(folder);
-            for (Path file : filesToIngest) {
-                try {
-                    InputStream inputStream = new FileInputStream(file.toFile());
-                    Entity<InputStream> fileEntity = Entity.entity(inputStream, Files.probeContentType(file));
-                    Response fileIngestResponse = ingestLocation.request().header("filename", file.getFileName().toString()).post(fileEntity);
-                    imageDataList.add(fileIngestResponse.getHeaderString("location").replaceAll(rootUrl, fedoraUrl));
-                } catch ( IOException e) {
-                    log.error(e);
-                }
+        Response transactionResponse = fedoraBase.path("fcr:tx").request().post(null);
+        if (transactionResponse.getStatus() < 400) {
+            String transactionUrl = transactionResponse.getHeaderString("location");
+
+            // Create the required container hierarchy
+            if (!createContainerHieararchyForRecord(transactionUrl, identifier)) {
+                return;
             }
-            // hier 
-        try {
-            Path metsfile =   createMetsFile( process,  destination);
-            InputStream inputStream = new FileInputStream(metsfile.toFile());
-            Entity<InputStream> fileEntity = Entity.entity(inputStream, "application/xml");
-            ingestLocation.request().header("filename", metsfile.getFileName().toString()).post(fileEntity);
-        } catch (UGHException | DAOException | InterruptedException | IOException | SwapException e) {
-            log.error(e);
-        }
-        
-            
-            ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
+
+            WebTarget ingestLocation = client.target(transactionUrl);
+            try {
+                rootUrl = transactionUrl;
+                WebTarget recordUrl = ingestLocation.path("records").path(identifier);
+                WebTarget mediaUrl = recordUrl.path("media");
+
+                // Add images
+                List<Path> filesToIngest = NIOFileUtils.listFiles(folder);
+                for (Path file : filesToIngest) {
+                    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()));
+                    if (fileUrl != null) {
+                        imageDataList.add(fileUrl.replaceAll(rootUrl, fedoraUrl));
+                    }
+                }
+
+                // Add METS 
+                Path metsfile = createMetsFile(process, destination);
+                addFileResource(metsfile, recordUrl.path(metsfile.getFileName().toString()));
+
+                ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
+            } catch (IOException | UGHException | DAOException | InterruptedException | SwapException e) {
+                log.error(e);
+                ingestLocation.path("fcr:tx").path("fcr:rollback").request().post(null);
+            }
         }
     }
 
-    private Path createMetsFile(Process process, String destination) throws UGHException, DAOException, InterruptedException, IOException,SwapException{
+    /**
+     * 
+     * @param file
+     * @param target
+     * @return File location URL in Fedora
+     * @throws IOException
+     */
+    private static String addFileResource(Path file, WebTarget target) throws IOException {
+        if (file == null) {
+            throw new IllegalArgumentException("file may not be null");
+        }
+        if (target == null) {
+            throw new IllegalArgumentException("target may not be null");
+        }
+
+        try (InputStream inputStream = new FileInputStream(file.toFile())) {
+            Entity<InputStream> fileEntity = Entity.entity(inputStream, Files.probeContentType(file));
+            Response response = target.request().header("filename", file.getFileName().toString()).put(fileEntity);
+            switch (response.getStatus()) {
+                case 201:
+                    log.debug("Resource added: " + response.getHeaderString("location"));
+                    break;
+                case 204:
+                    log.info("Resource already exists, updating...");
+                    // Delete file and its tombstone
+                    response = target.request().delete();
+                    response = target.path("fcr:tombstone").request().delete();
+                    // If successful, attempt to add file again
+                    if (response.getStatus() == 204) {
+                        return addFileResource(file, target);
+                    }
+                    break;
+                default:
+                    String body = response.readEntity(String.class);
+                    log.error(response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body);
+            }
+
+            return response.getHeaderString("location");
+        }
+    }
+
+    /**
+     * 
+     * @param rootUrl
+     * @param identifier
+     * @return
+     */
+    private static boolean createContainerHieararchyForRecord(String rootUrl, String identifier) {
+        String recordUrl = rootUrl + "/" + identifier;
+
+        // Using Apache client because it supports PUT without an entity
+        try (CloseableHttpClient httpClient = HttpClients.createMinimal()) {
+            {
+                // Create proper (non-pairtree) container for the record identifier
+                HttpPut put = new HttpPut(recordUrl);
+                try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
+                    switch (httpResponse.getStatusLine().getStatusCode()) {
+                        case 201:
+                            log.info("Container created: " + recordUrl);
+                            break;
+                        case 204:
+                        case 409:
+                            log.trace("Container already exists: " + recordUrl);
+                            break;
+                        default:
+                            String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
+                            log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
+                                    + body);
+                            return false;
+                    }
+                }
+            }
+            {
+                // Create proper (non-pairtree) container for the media
+                HttpPut put = new HttpPut(recordUrl + "/media");
+                try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
+                    switch (httpResponse.getStatusLine().getStatusCode()) {
+                        case 201:
+                            log.info("Container created: " + recordUrl);
+                            break;
+                        case 204:
+                        case 409:
+                            log.trace("Container already exists: " + recordUrl);
+                            break;
+                        default:
+                            String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
+                            log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
+                                    + body);
+                            return false;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            log.error(e.getMessage(), e);
+            return false;
+        }
+
+        return true;
+    }
+
+    private Path createMetsFile(Process process, String destination) throws UGHException, DAOException, InterruptedException, IOException,
+            SwapException {
         Prefs prefs = process.getRegelsatz().getPreferences();
         Fileformat fileformat = process.readMetadataFile();
-
 
         ExportFileformat mm = MetadatenHelper.getExportFileformatByName(process.getProjekt().getFileFormatDmsExport(), process.getRegelsatz());
         mm.setWriteLocal(false);
@@ -199,8 +312,6 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         fedoraUrl = process.getProjekt().getDmsImportImagesPath();
         Path imageFolder = Paths.get(process.getImagesTifDirectory(true));
         ingestData(imageFolder.toString(), process, destination);
-        
-       
 
         Helper.setMeldung(null, process.getTitel() + ": ", "ExportFinished");
 
@@ -236,6 +347,20 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     public String getDescription() {
         return getTitle();
+    }
+
+    @Override
+    public List<String> getProblems() {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    public static void main(String[] args) {
+        FedoraExportPlugin plugin = new FedoraExportPlugin();
+        Process process = new Process();
+        Ruleset ruleset = new Ruleset();
+        process.setRegelsatz(ruleset);
+        plugin.ingestData("c:/digiverso/viewer/media/PPN517154005", process, "c:/digiverso/temp");
     }
 
 }
