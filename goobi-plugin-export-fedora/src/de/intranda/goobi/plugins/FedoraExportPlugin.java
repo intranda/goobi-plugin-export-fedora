@@ -5,9 +5,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
+import java.nio.file.CopyOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -45,6 +47,7 @@ import de.sub.goobi.helper.exceptions.SwapException;
 import de.sub.goobi.helper.exceptions.UghHelperException;
 import de.sub.goobi.metadaten.MetadatenHelper;
 import de.sub.goobi.metadaten.MetadatenImagesHelper;
+import de.sub.goobi.persistence.managers.MetadataManager;
 import net.xeoh.plugins.base.annotations.PluginImplementation;
 import ugh.dl.DigitalDocument;
 import ugh.dl.ExportFileformat;
@@ -98,7 +101,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     }
 
     private void ingestData(String folder, Process process, String destination) {
-        String identifier = ""; // TODO
+        String identifier = MetadataManager.getMetadataValue(process.getId(), "CatalogIDDigital");
 
         Client client = ClientBuilder.newClient();
         WebTarget fedoraBase = client.target(fedoraUrl);
@@ -126,9 +129,12 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     }
                 }
 
-                // Add METS 
-                Path metsfile = createMetsFile(process, destination);
-                addFileResource(metsfile, recordUrl.path(metsfile.getFileName().toString()));
+                // Create METS file in the process folder and add it to the repository 
+                Path metsFile = createMetsFile(process, process.getProcessDataDirectory());
+                addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()));
+                // Copy METS file to export destination
+                Path exportMetsFile = Paths.get(destination);
+                Files.copy(metsFile, exportMetsFile, StandardCopyOption.REPLACE_EXISTING);
 
                 ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
             } catch (IOException | UGHException | DAOException | InterruptedException | SwapException e) {
