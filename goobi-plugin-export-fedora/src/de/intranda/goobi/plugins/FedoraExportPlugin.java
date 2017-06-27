@@ -5,7 +5,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
-import java.nio.file.CopyOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -26,7 +25,6 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.log4j.Logger;
 import org.goobi.beans.Process;
-import org.goobi.beans.Ruleset;
 import org.goobi.production.enums.PluginType;
 import org.goobi.production.plugin.interfaces.IExportPlugin;
 import org.goobi.production.plugin.interfaces.IPlugin;
@@ -100,7 +98,14 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         return startExport(process, process.getProjekt().getDmsImportRootPath());
     }
 
-    private void ingestData(String folder, Process process, String destination) {
+    /**
+     * 
+     * @param folder
+     * @param process
+     * @param destination
+     * @param useVersioning
+     */
+    private void ingestData(String folder, Process process, String destination, boolean useVersioning) {
         String identifier = MetadataManager.getMetadataValue(process.getId(), "CatalogIDDigital");
 
         Client client = ClientBuilder.newClient();
@@ -123,7 +128,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 // Add images
                 List<Path> filesToIngest = NIOFileUtils.listFiles(folder);
                 for (Path file : filesToIngest) {
-                    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()));
+                    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()), useVersioning);
                     if (fileUrl != null) {
                         imageDataList.add(fileUrl.replaceAll(rootUrl, fedoraUrl));
                     }
@@ -131,7 +136,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
                 // Create METS file in the process folder and add it to the repository 
                 Path metsFile = createMetsFile(process, process.getProcessDataDirectory());
-                addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()));
+                addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), useVersioning);
                 // Copy METS file to export destination
                 Path exportMetsFile = Paths.get(destination);
                 Files.copy(metsFile, exportMetsFile, StandardCopyOption.REPLACE_EXISTING);
@@ -148,10 +153,12 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
      * 
      * @param file
      * @param target
+     * @param useVersioning
+     * @param
      * @return File location URL in Fedora
      * @throws IOException
      */
-    private static String addFileResource(Path file, WebTarget target) throws IOException {
+    private static String addFileResource(Path file, WebTarget target, boolean useVersioning) throws IOException {
         if (file == null) {
             throw new IllegalArgumentException("file may not be null");
         }
@@ -161,28 +168,49 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
         try (InputStream inputStream = new FileInputStream(file.toFile())) {
             Entity<InputStream> fileEntity = Entity.entity(inputStream, Files.probeContentType(file));
-            Response response = target.request().header("filename", file.getFileName().toString()).put(fileEntity);
+            Response response = target.request().header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"").put(
+                    fileEntity);
             switch (response.getStatus()) {
                 case 201:
                     log.debug("Resource added: " + response.getHeaderString("location"));
                     break;
                 case 204:
                     log.info("Resource already exists, updating...");
-                    // Delete file and its tombstone
-                    response = target.request().delete();
-                    response = target.path("fcr:tombstone").request().delete();
-                    // If successful, attempt to add file again
-                    if (response.getStatus() == 204) {
-                        return addFileResource(file, target);
+                    if (useVersioning) {
+                        // Add new version
+                        String version = String.valueOf(System.currentTimeMillis());
+                        try (InputStream inputStream2 = new FileInputStream(file.toFile())) {
+                            target.path("fcr:versions").request().header("Slug", version).post(Entity.entity(inputStream2, Files.probeContentType(
+                                    file)));
+                        }
+                        switch (response.getStatus()) {
+                            case 201:
+                                log.debug("New version " + version + " added: " + response.getHeaderString("location"));
+                                break;
+                            default:
+                                String body = response.readEntity(String.class);
+                                log.error(response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body);
+                                break;
+                        }
+                    } else {
+                        // Delete file and its tombstone
+                        response = target.request().delete();
+                        response = target.path("fcr:tombstone").request().delete();
+                        // If successful, attempt to add file again
+                        if (response.getStatus() == 204) {
+                            return addFileResource(file, target, useVersioning);
+                        }
                     }
                     break;
                 default:
                     String body = response.readEntity(String.class);
                     log.error(response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body);
+                    break;
             }
 
             return response.getHeaderString("location");
         }
+
     }
 
     /**
@@ -317,7 +345,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             SwapException, DAOException, TypeNotAllowedForParentException {
         fedoraUrl = process.getProjekt().getDmsImportImagesPath();
         Path imageFolder = Paths.get(process.getImagesTifDirectory(true));
-        ingestData(imageFolder.toString(), process, destination);
+        ingestData(imageFolder.toString(), process, destination, false);
 
         Helper.setMeldung(null, process.getTitel() + ": ", "ExportFinished");
 
@@ -360,13 +388,4 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         // TODO Auto-generated method stub
         return null;
     }
-
-    public static void main(String[] args) {
-        FedoraExportPlugin plugin = new FedoraExportPlugin();
-        Process process = new Process();
-        Ruleset ruleset = new Ruleset();
-        process.setRegelsatz(ruleset);
-        plugin.ingestData("c:/digiverso/viewer/media/PPN517154005", process, "c:/digiverso/temp");
-    }
-
 }
