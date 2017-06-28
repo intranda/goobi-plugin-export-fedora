@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config_plugin>
+
+	<fedoraUrl>http://localhost:8081/fedora/rest</fedoraUrl>
+	<useVersioning>false</useVersioning>
+	
+</config_plugin>

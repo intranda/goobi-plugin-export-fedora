@@ -36,6 +36,7 @@ import org.jdom2.input.SAXBuilder;
 import org.jdom2.output.Format;
 import org.jdom2.output.XMLOutputter;
 
+import de.sub.goobi.config.ConfigPlugins;
 import de.sub.goobi.helper.Helper;
 import de.sub.goobi.helper.NIOFileUtils;
 import de.sub.goobi.helper.VariableReplacer;
@@ -68,7 +69,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     private static final String PLUGIN_NAME = "FedoraExport";
 
-    private String fedoraUrl = "http://localhost:8088/rest";
+    private static String fedoraUrl;
 
     private List<String> imageDataList = new ArrayList<>();
     private String rootUrl;
@@ -103,9 +104,11 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
      * @param folder
      * @param process
      * @param destination
-     * @param useVersioning
+     * @param useVersioning If true, new versions of the existing resource will be added; if false, the resource will be deleted and created anew (all
+     *            previous versions will be deleted).
      */
     private void ingestData(String folder, Process process, String destination, boolean useVersioning) {
+        fedoraUrl = ConfigPlugins.getPluginConfig(this).getString("fedoraUrl", "http://localhost:8080/fedora/rest");
         String identifier = MetadataManager.getMetadataValue(process.getId(), "CatalogIDDigital");
 
         Client client = ClientBuilder.newClient();
@@ -128,15 +131,17 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 // Add images
                 List<Path> filesToIngest = NIOFileUtils.listFiles(folder);
                 for (Path file : filesToIngest) {
-                    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()), useVersioning);
+                    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()), useVersioning, transactionUrl);
                     if (fileUrl != null) {
                         imageDataList.add(fileUrl.replaceAll(rootUrl, fedoraUrl));
                     }
+                    // Refresh transaction
+                    ingestLocation.path("fcr:tx").request().post(null);
                 }
 
                 // Create METS file in the process folder and add it to the repository 
                 Path metsFile = createMetsFile(process, process.getProcessDataDirectory());
-                addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), useVersioning);
+                addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), useVersioning, transactionUrl);
                 // Copy METS file to export destination
                 Path exportMetsFile = Paths.get(destination);
                 Files.copy(metsFile, exportMetsFile, StandardCopyOption.REPLACE_EXISTING);
@@ -158,7 +163,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
      * @return File location URL in Fedora
      * @throws IOException
      */
-    private static String addFileResource(Path file, WebTarget target, boolean useVersioning) throws IOException {
+    private static String addFileResource(Path file, WebTarget target, boolean useVersioning, String transactionUrl) throws IOException {
         if (file == null) {
             throw new IllegalArgumentException("file may not be null");
         }
@@ -172,7 +177,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         switch (response.getStatus()) {
             case 200:
                 exists = true;
-                log.debug("Resource already exists: " + target.getUri().toURL().toString());
+                log.debug("Resource already exists: " + target.getUri().toURL().toString().replace(transactionUrl, fedoraUrl));
                 break;
         }
 
@@ -207,12 +212,13 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 case 201:
                     if (exists) {
                         if (useVersioning) {
-                            log.debug("New resource version " + version + " added: " + response.getHeaderString("location"));
+                            log.debug("New resource version " + version + " added: " + response.getHeaderString("location").replace(transactionUrl,
+                                    fedoraUrl));
                         } else {
-                            log.debug("Resource updated: " + response.getHeaderString("location"));
+                            log.debug("Resource updated: " + response.getHeaderString("location").replace(transactionUrl, fedoraUrl));
                         }
                     } else {
-                        log.debug("New resource added: " + response.getHeaderString("location"));
+                        log.debug("New resource added: " + response.getHeaderString("location").replace(transactionUrl, fedoraUrl));
                     }
                     break;
                 default:
@@ -356,9 +362,9 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     public boolean startExport(Process process, String destination) throws IOException, InterruptedException, DocStructHasNoTypeException,
             PreferencesException, WriteException, MetadataTypeNotAllowedException, ExportFileException, UghHelperException, ReadException,
             SwapException, DAOException, TypeNotAllowedForParentException {
-        fedoraUrl = process.getProjekt().getDmsImportImagesPath();
+        //        fedoraUrl = process.getProjekt().getDmsImportImagesPath();
         Path imageFolder = Paths.get(process.getImagesTifDirectory(true));
-        ingestData(imageFolder.toString(), process, destination, false);
+        ingestData(imageFolder.toString(), process, destination, ConfigPlugins.getPluginConfig(this).getBoolean("useVersioning", false));
 
         Helper.setMeldung(null, process.getTitel() + ": ", "ExportFinished");
 
