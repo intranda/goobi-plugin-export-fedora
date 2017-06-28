@@ -388,7 +388,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             Element fileSec = metsDoc.getRootElement().getChild("fileSec", mets);
 
             for (Element fileGrp : fileSec.getChildren()) {
-                if (fileGrp.getAttributeValue("USE").equals("FEDORA")) {
+                if (fileGrp.getAttributeValue("USE").equals("PRESENTATION") || fileGrp.getAttributeValue("USE").equals("FEDORA")) {
                     List<Element> fileList = fileGrp.getChildren();
                     for (int i = 0; i < fileList.size(); i++) {
                         Element file = fileList.get(i);
