@@ -97,7 +97,7 @@
 	</target>
 	<target name="win32" if="isWindows">
 		<echo>Using Windows path: ${pluginFolderWin}</echo>
-		<copy tofile="${pluginFolderWin}$${filename}-${git.revision}.jar" file="${dir.deploy}/${filename}-${git.revision}.jar" overwrite="true" />
+		<copy tofile="${pluginFolderWin}${filename}-${git.revision}.jar" file="${dir.deploy}/${filename}-${git.revision}.jar" overwrite="true" />
 	</target>
 
 	<!-- ================================= 
