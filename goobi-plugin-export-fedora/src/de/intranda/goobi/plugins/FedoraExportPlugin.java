@@ -37,6 +37,8 @@ import org.jdom2.Namespace;
 import org.jdom2.input.SAXBuilder;
 import org.jdom2.output.Format;
 import org.jdom2.output.XMLOutputter;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
 
 import de.sub.goobi.config.ConfigPlugins;
 import de.sub.goobi.helper.Helper;
@@ -72,6 +74,8 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     private static final String PLUGIN_NAME = "FedoraExport";
 
     private static String fedoraUrl;
+
+    public static DateTimeFormatter formatter = DateTimeFormat.forPattern("yyyy-MM-dd_HH.mm.ss.SSS");
 
     private List<String> imageDataList = new ArrayList<>();
     private String rootUrl;
@@ -156,7 +160,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 return;
             }
 
-            String version = useVersioning ? "version." + String.valueOf(System.currentTimeMillis()) : null;
+            String version = useVersioning ? "goobi-export." + formatter.print(System.currentTimeMillis()) : null;
 
             try {
                 WebTarget recordUrl = ingestLocation.path("records").path(identifier);
