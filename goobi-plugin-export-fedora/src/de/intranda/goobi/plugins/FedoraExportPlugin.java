@@ -98,7 +98,9 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     public boolean startExport(Process process) throws IOException, InterruptedException, DocStructHasNoTypeException, PreferencesException,
             WriteException, MetadataTypeNotAllowedException, ExportFileException, UghHelperException, ReadException, SwapException, DAOException,
             TypeNotAllowedForParentException {
-        return startExport(process, process.getProjekt().getDmsImportRootPath());
+    	
+    	String path = new VariableReplacer(null, null, process, null).replace(process.getProjekt().getDmsImportRootPath());
+    	return startExport(process, path);
     }
 
     /**
