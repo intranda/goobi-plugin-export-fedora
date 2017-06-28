@@ -142,13 +142,14 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 // Create METS file in the process folder and add it to the repository 
                 Path metsFile = createMetsFile(process, process.getProcessDataDirectory());
                 addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), useVersioning, transactionUrl);
+
+                ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
+                
                 // Copy METS file to export destination
                 Path exportMetsFile = Paths.get(destination);
                 Files.copy(metsFile, exportMetsFile, StandardCopyOption.REPLACE_EXISTING);
-
-                ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
             } catch (IOException | UGHException | DAOException | InterruptedException | SwapException e) {
-                log.error(e);
+                log.error(e.getMessage(), e);
                 ingestLocation.path("fcr:tx").path("fcr:rollback").request().post(null);
             }
         }
@@ -315,7 +316,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         VariableReplacer vp = new VariableReplacer(mm.getDigitalDocument(), prefs, process, null);
 
         VirtualFileGroup v = new VirtualFileGroup();
-        v.setName("FEDORA");
+        v.setName("PRESENTATION");
         v.setPathToFiles(rootUrl);
         v.setMimetype("image/html-sandboxed");
         v.setFileSuffix("tif");
