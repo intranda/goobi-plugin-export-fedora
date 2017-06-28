@@ -98,9 +98,9 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     public boolean startExport(Process process) throws IOException, InterruptedException, DocStructHasNoTypeException, PreferencesException,
             WriteException, MetadataTypeNotAllowedException, ExportFileException, UghHelperException, ReadException, SwapException, DAOException,
             TypeNotAllowedForParentException {
-    	
-    	String path = new VariableReplacer(null, null, process, null).replace(process.getProjekt().getDmsImportRootPath());
-    	return startExport(process, path);
+
+        String path = new VariableReplacer(null, null, process, null).replace(process.getProjekt().getDmsImportRootPath());
+        return startExport(process, path);
     }
 
     /**
@@ -149,7 +149,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
 
                 // Copy METS file to export destination
-                Path exportMetsFile = Paths.get(destination);
+                Path exportMetsFile = Paths.get(destination, metsFile.getFileName().toString());
                 Files.copy(metsFile, exportMetsFile, StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException | UGHException | DAOException | InterruptedException | SwapException e) {
                 log.error(e.getMessage(), e);
