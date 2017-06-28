@@ -156,6 +156,8 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 return;
             }
 
+            String version = useVersioning ? "version." + String.valueOf(System.currentTimeMillis()) : null;
+
             try {
                 WebTarget recordUrl = ingestLocation.path("records").path(identifier);
                 WebTarget mediaUrl = recordUrl.path("media");
@@ -163,7 +165,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 // Add images
                 List<Path> filesToIngest = NIOFileUtils.listFiles(folder);
                 for (Path file : filesToIngest) {
-                    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()), useVersioning, transactionUrl);
+                    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()), version, transactionUrl);
                     if (fileUrl != null) {
                         imageDataList.add(fileUrl.replace(transactionUrl, fedoraUrl));
                     }
@@ -173,7 +175,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
                 // Create METS file in the process folder and add it to the repository 
                 Path metsFile = createMetsFile(process, process.getProcessDataDirectory());
-                addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), useVersioning, transactionUrl);
+                addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), version, transactionUrl);
 
                 ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
 
@@ -191,12 +193,12 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
      * 
      * @param file
      * @param target
-     * @param useVersioning
+     * @param version
      * @param
      * @return File location URL in Fedora
      * @throws IOException
      */
-    private static String addFileResource(Path file, WebTarget target, boolean useVersioning, String transactionUrl) throws IOException {
+    private static String addFileResource(Path file, WebTarget target, String version, String transactionUrl) throws IOException {
         if (file == null) {
             throw new IllegalArgumentException("file may not be null");
         }
@@ -213,7 +215,6 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         }
 
         try (InputStream inputStream = new FileInputStream(file.toFile())) {
-            String version = "version." + String.valueOf(System.currentTimeMillis());
             String mimeType = Files.probeContentType(file);
             if (mimeType == null) {
                 mimeType = URLConnection.guessContentTypeFromStream(inputStream);
@@ -245,10 +246,10 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             }
             Entity<InputStream> fileEntity = Entity.entity(inputStream, mimeType);
             if (exists) {
-                if (useVersioning) {
+                if (version != null) {
                     // Add new version
                     response = target.path("fcr:versions").request().header("Slug", version).header("Content-Disposition", "attachment; filename=\""
-                            + file.getFileName().toString() + "\"").post(Entity.entity(inputStream, Files.probeContentType(file)));
+                            + file.getFileName().toString() + "\"").post(Entity.entity(inputStream, mimeType));
                 } else {
                     // Delete file and its tombstone
                     response = target.request().delete();
@@ -278,7 +279,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             switch (response.getStatus()) {
                 case 201:
                     if (exists) {
-                        if (useVersioning) {
+                        if (version != null) {
                             log.debug("New resource version " + version + " added: " + response.getHeaderString("location").replace(transactionUrl,
                                     fedoraUrl));
                         } else {
