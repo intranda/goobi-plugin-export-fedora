@@ -19,6 +19,7 @@ import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.Response;
 
+import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPut;
@@ -187,6 +188,31 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             String mimeType = Files.probeContentType(file);
             if (mimeType == null) {
                 mimeType = URLConnection.guessContentTypeFromStream(inputStream);
+            }
+            if (mimeType == null) {
+                String extension = FilenameUtils.getExtension(file.getFileName().toString());
+                if (extension != null) {
+                    switch (extension.toLowerCase()) {
+                        case "tif":
+                        case "tiff":
+                            mimeType = "image/tiff";
+                            break;
+                        case "jpg":
+                        case "jpeg":
+                            mimeType = "image/jpeg";
+                            break;
+                        case "png":
+                            mimeType = "image/png";
+                            break;
+                        case "xml":
+                            mimeType = "text/xml";
+                            break;
+                        default:
+                            mimeType = "text/html";
+                            break;
+                    }
+                    log.debug("Manually determined mime type: " + mimeType);
+                }
             }
             Entity<InputStream> fileEntity = Entity.entity(inputStream, mimeType);
             if (exists) {
