@@ -120,13 +120,43 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         Response transactionResponse = fedoraBase.path("fcr:tx").request().post(null);
         if (transactionResponse.getStatus() < 400) {
             String transactionUrl = transactionResponse.getHeaderString("location");
+            WebTarget ingestLocation = client.target(transactionUrl);
 
+            // If not using versioning remove resource prior to ingesting to speed things up
+            if (!useVersioning) {
+                WebTarget recordContainer = ingestLocation.path("records/" + identifier);
+                Response response = recordContainer.request().get();
+                if (response.getStatus() == 200) {
+                    log.debug("Record container already exists: " + recordContainer.getUri().toString());
+                    response = recordContainer.request().delete();
+                    switch (response.getStatus()) {
+                        case 204:
+                            response = recordContainer.path("fcr:tombstone").request().delete();
+                            switch (response.getStatus()) {
+                                case 204:
+                                    response = recordContainer.path("fcr:tombstone").request().delete();
+                                    log.debug("Record container deleted");
+                                    break;
+                                default:
+                                    String body = response.readEntity(String.class);
+                                    String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
+                                    log.error(msg);
+                                    return;
+                            }
+                            break;
+                        default:
+                            String body = response.readEntity(String.class);
+                            String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
+                            log.error(msg);
+                            return;
+                    }
+                }
+            }
             // Create the required container hierarchy
             if (!createContainerHieararchyForRecord(transactionUrl + "/records", identifier)) {
                 return;
             }
 
-            WebTarget ingestLocation = client.target(transactionUrl);
             try {
                 WebTarget recordUrl = ingestLocation.path("records").path(identifier);
                 WebTarget mediaUrl = recordUrl.path("media");
@@ -178,11 +208,9 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         // Check resource existence
         boolean exists = false;
         Response response = target.request().get();
-        switch (response.getStatus()) {
-            case 200:
-                exists = true;
-                log.debug("Resource already exists: " + target.getUri().toURL().toString().replace(transactionUrl, fedoraUrl));
-                break;
+        if (response.getStatus() == 200) {
+            exists = true;
+            log.debug("Resource already exists: " + target.getUri().toURL().toString().replace(transactionUrl, fedoraUrl));
         }
 
         try (InputStream inputStream = new FileInputStream(file.toFile())) {
