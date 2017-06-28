@@ -2,7 +2,7 @@
 
 <!-- ADJUST PROJECT NAME, FILENAME AND INCLUDED CLASSES FOR JENKINS IF YOU COPY THIS FILE TO A NEW PROJECT-->
 
-<project name="Goobi Export Plugin" basedir="." default="deploy">
+<project name="Goobi Export Plugin - Fedora" basedir="." default="deploy">
 
 	<!-- ================================= 
 	        properties             
@@ -13,7 +13,7 @@
 	<property name="dir.test" value="test/src" />
 	<property name="dir.deploy" value="deploy" />
 	<property name="dir.javadoc" value="doc" />
-	<property name="pluginFolderWin" value="C:/Goobi/plugins/export/" />
+	<property name="pluginFolderWin" value="C:/g2g/goobi/plugins/export/" />
 	<property name="pluginFolderUnix" value="/opt/digiverso/goobi/plugins/export/" />
 	<property name="dir.pmd" value="/opt/pmd" />
 
@@ -36,9 +36,6 @@
 			<include name="*.jar" />
 		</fileset>
 	</path>
-
-	<taskdef name="pmd" classname="net.sourceforge.pmd.ant.PMDTask" classpathref="pmd.classpath">
-	</taskdef>
 
 	
 	<tstamp>

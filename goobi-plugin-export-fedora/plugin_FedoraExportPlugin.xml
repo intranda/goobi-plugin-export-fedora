@@ -2,6 +2,7 @@
 <config_plugin>
 
 	<fedoraUrl>http://localhost:8081/fedora/rest</fedoraUrl>
+	<!-- JAR: <fedoraUrl>http://localhost:8081/rest</fedoraUrl> -->
 	<useVersioning>false</useVersioning>
 	
 </config_plugin>
