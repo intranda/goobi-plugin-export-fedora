@@ -134,7 +134,6 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                             response = recordContainer.path("fcr:tombstone").request().delete();
                             switch (response.getStatus()) {
                                 case 204:
-                                    response = recordContainer.path("fcr:tombstone").request().delete();
                                     log.debug("Record container deleted");
                                     break;
                                 default:
