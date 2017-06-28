@@ -166,40 +166,53 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             throw new IllegalArgumentException("target may not be null");
         }
 
+        // Check resource existence
+        boolean exists = false;
+        Response response = target.request().get();
+        switch (response.getStatus()) {
+            case 200:
+                exists = true;
+                log.debug("Resource already exists: " + target.getUri().toURL().toString());
+                break;
+        }
+
         try (InputStream inputStream = new FileInputStream(file.toFile())) {
+            String version = "version." + String.valueOf(System.currentTimeMillis());
             Entity<InputStream> fileEntity = Entity.entity(inputStream, Files.probeContentType(file));
-            Response response = target.request().header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"").put(
-                    fileEntity);
+            if (exists) {
+                if (useVersioning) {
+                    // Add new version
+                    response = target.path("fcr:versions").request().header("Slug", version).header("Content-Disposition", "attachment; filename=\""
+                            + file.getFileName().toString() + "\"").post(Entity.entity(inputStream, Files.probeContentType(file)));
+                } else {
+                    // Delete file and its tombstone
+                    response = target.request().delete();
+                    response = target.path("fcr:tombstone").request().delete();
+                    // Add file again
+                    if (response.getStatus() == 204) {
+                        response = target.request().header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"")
+                                .put(fileEntity);
+                    } else {
+                        String body = response.readEntity(String.class);
+                        log.error(response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body);
+                        throw new IOException(response.getStatusInfo().getReasonPhrase());
+                    }
+                }
+            } else {
+                // Add new file
+                response = target.request().header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"").put(
+                        fileEntity);
+            }
             switch (response.getStatus()) {
                 case 201:
-                    log.debug("Resource added: " + response.getHeaderString("location"));
-                    break;
-                case 204:
-                    log.info("Resource already exists, updating...");
-                    if (useVersioning) {
-                        // Add new version
-                        String version = String.valueOf(System.currentTimeMillis());
-                        try (InputStream inputStream2 = new FileInputStream(file.toFile())) {
-                            target.path("fcr:versions").request().header("Slug", version).post(Entity.entity(inputStream2, Files.probeContentType(
-                                    file)));
-                        }
-                        switch (response.getStatus()) {
-                            case 201:
-                                log.debug("New version " + version + " added: " + response.getHeaderString("location"));
-                                break;
-                            default:
-                                String body = response.readEntity(String.class);
-                                log.error(response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body);
-                                break;
+                    if (exists) {
+                        if (useVersioning) {
+                            log.debug("New resource version " + version + " added: " + response.getHeaderString("location"));
+                        } else {
+                            log.debug("Resource updated: " + response.getHeaderString("location"));
                         }
                     } else {
-                        // Delete file and its tombstone
-                        response = target.request().delete();
-                        response = target.path("fcr:tombstone").request().delete();
-                        // If successful, attempt to add file again
-                        if (response.getStatus() == 204) {
-                            return addFileResource(file, target, useVersioning);
-                        }
+                        log.debug("New resource added: " + response.getHeaderString("location"));
                     }
                     break;
                 default:
