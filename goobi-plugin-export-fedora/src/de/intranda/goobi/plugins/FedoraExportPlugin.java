@@ -5,6 +5,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
+import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -183,7 +184,11 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
         try (InputStream inputStream = new FileInputStream(file.toFile())) {
             String version = "version." + String.valueOf(System.currentTimeMillis());
-            Entity<InputStream> fileEntity = Entity.entity(inputStream, Files.probeContentType(file));
+            String mimeType = Files.probeContentType(file);
+            if (mimeType == null) {
+                mimeType = URLConnection.guessContentTypeFromStream(inputStream);
+            }
+            Entity<InputStream> fileEntity = Entity.entity(inputStream, mimeType);
             if (exists) {
                 if (useVersioning) {
                     // Add new version
