@@ -391,6 +391,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         v.setName("PRESENTATION");
         v.setPathToFiles(rootUrl);
         v.setMimetype("image/html-sandboxed");
+//        v.setMimetype("image/tiff");
         v.setFileSuffix("tif");
         mm.getDigitalDocument().getFileSet().addVirtualFileGroup(v);
 
@@ -458,7 +459,13 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     for (int i = 0; i < fileList.size(); i++) {
                         Element file = fileList.get(i);
                         Element flocat = file.getChild("FLocat", mets);
-                        flocat.setAttribute("href", imageDataList.get(i), xlink);
+                        
+                        // cut off the version path of the url
+                        String myurl = imageDataList.get(i);
+                        if (myurl.contains("/fcr:versions")){
+                        	myurl = myurl.substring(0, myurl.indexOf("/fcr:versions"));
+                        }
+                        flocat.setAttribute("href", myurl, xlink);
                     }
                 }
             }
