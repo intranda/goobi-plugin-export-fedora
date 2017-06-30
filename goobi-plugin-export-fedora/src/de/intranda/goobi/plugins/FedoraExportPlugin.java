@@ -71,7 +71,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     private static final Logger log = Logger.getLogger(FedoraExportPlugin.class);
 
-    private static final String PLUGIN_NAME = "FedoraExport";
+    private static final String PLUGIN_NAME = "intranda_step_fedoraExport";
 
     private static String fedoraUrl;
 
