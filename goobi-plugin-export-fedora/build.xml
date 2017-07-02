@@ -7,7 +7,7 @@
 	<!-- ================================= 
 	        properties             
 	     ================================= -->
-	<property name="filename" value="FedoraExportPlugin" />
+	<property name="filename" value="plugin_intranda_export_fedora" />
 	<property name="dir.build" value="bin" />
 	<property name="dir.src" value="src" />
 	<property name="dir.test" value="test/src" />
