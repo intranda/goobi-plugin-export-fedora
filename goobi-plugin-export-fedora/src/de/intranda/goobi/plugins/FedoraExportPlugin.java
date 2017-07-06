@@ -274,6 +274,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                             + file.getFileName().toString() + "\"").post(Entity.entity(inputStream, mimeType));
                 } else {
                     // No versioning: Delete file so it can be replaced (DELETE operation)
+                    // TODO This part is obsolete because the entire container is now deleted if it already exists (much faster)
                     response = target.request().delete();
                     if (response.getStatus() != 204) {
                         // Error
