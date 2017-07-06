@@ -121,26 +121,33 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
         Client client = ClientBuilder.newClient();
         WebTarget fedoraBase = client.target(fedoraUrl);
+        // Create a new transaction in Fedora (POST operation)
         Response transactionResponse = fedoraBase.path("fcr:tx").request().post(null);
         if (transactionResponse.getStatus() < 400) {
+            // The base URL to work with (contains the transaction ID)
             String transactionUrl = transactionResponse.getHeaderString("location");
             WebTarget ingestLocation = client.target(transactionUrl);
 
             // If not using versioning remove resource prior to ingesting to speed things up
             if (!useVersioning) {
                 WebTarget recordContainer = ingestLocation.path("records/" + identifier);
+                // Check whether the container for this record already exists (GET operation; returns 200 if exists)
                 Response response = recordContainer.request().get();
                 if (response.getStatus() == 200) {
                     log.debug("Record container already exists: " + recordContainer.getUri().toString());
+                    // Delete the container (DELETE operation)
                     response = recordContainer.request().delete();
                     switch (response.getStatus()) {
                         case 204:
+                            // Each deleted resource leaves a tombstone which prevents a resource with the same name from being created, so the tombstone has to be deleted as well (DELETE operation)
                             response = recordContainer.path("fcr:tombstone").request().delete();
                             switch (response.getStatus()) {
                                 case 204:
+                                    // Deleted successfully
                                     log.debug("Record container deleted");
                                     break;
                                 default:
+                                    // Error
                                     String body = response.readEntity(String.class);
                                     String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
                                     log.error(msg);
@@ -148,6 +155,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                             }
                             break;
                         default:
+                            // Error
                             String body = response.readEntity(String.class);
                             String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
                             log.error(msg);
@@ -160,11 +168,12 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 return;
             }
 
+            // Name for the new version, if using versioning
             String version = useVersioning ? "goobi-export." + formatter.print(System.currentTimeMillis()) : null;
 
             try {
-                WebTarget recordUrl = ingestLocation.path("records").path(identifier);
-                WebTarget mediaUrl = recordUrl.path("media");
+                WebTarget recordUrl = ingestLocation.path("records").path(identifier); // URL for the record folder
+                WebTarget mediaUrl = recordUrl.path("media"); // URL for the media folder
 
                 // Add images
                 List<Path> filesToIngest = NIOFileUtils.listFiles(folder);
@@ -173,7 +182,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     if (fileUrl != null) {
                         imageDataList.add(fileUrl.replace(transactionUrl, fedoraUrl));
                     }
-                    // Refresh transaction
+                    // Refresh transaction after each file to prevent timeouts
                     ingestLocation.path("fcr:tx").request().post(null);
                 }
 
@@ -181,12 +190,14 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 Path metsFile = createMetsFile(process, process.getProcessDataDirectory());
                 addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), version, transactionUrl);
 
+                // Commit transaction
                 ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
 
-                // Copy METS file to export destination
+                // Copy METS file to export destination (e.g. hotfolder)
                 Path exportMetsFile = Paths.get(destination, metsFile.getFileName().toString());
                 Files.copy(metsFile, exportMetsFile, StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException | UGHException | DAOException | InterruptedException | SwapException e) {
+                // Roll back transaction, if anything fails
                 log.error(e.getMessage(), e);
                 ingestLocation.path("fcr:tx").path("fcr:rollback").request().post(null);
             }
@@ -194,11 +205,12 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     }
 
     /**
+     * Adds the given binary file to Fedora
      * 
-     * @param file
-     * @param target
-     * @param version
-     * @param
+     * @param file File to add
+     * @param target Target URL containing the transaction ID
+     * @param version Version name, if using versioning; otherwise null
+     * @param Transaction URL prefix used to remove transaction IDs from the final file location URL
      * @return File location URL in Fedora
      * @throws IOException
      */
@@ -219,10 +231,13 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         }
 
         try (InputStream inputStream = new FileInputStream(file.toFile())) {
+            // Determine mime type using Java NIO
             String mimeType = Files.probeContentType(file);
+            // If mime type could not be determined, use alternate method
             if (mimeType == null) {
                 mimeType = URLConnection.guessContentTypeFromStream(inputStream);
             }
+            // Manual fallback for Macs (using the file extension)
             if (mimeType == null) {
                 String extension = FilenameUtils.getExtension(file.getFileName().toString());
                 if (extension != null) {
@@ -248,27 +263,34 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     log.debug("Manually determined mime type: " + mimeType);
                 }
             }
+            // Create HTTP entity from the file
             Entity<InputStream> fileEntity = Entity.entity(inputStream, mimeType);
             if (exists) {
                 if (version != null) {
-                    // Add new version
+                    // Add new version (POST operation)
+                    // "Slug" is the version name attribute
+                    // "Content-Disposition" attribute contains the file name
                     response = target.path("fcr:versions").request().header("Slug", version).header("Content-Disposition", "attachment; filename=\""
                             + file.getFileName().toString() + "\"").post(Entity.entity(inputStream, mimeType));
                 } else {
-                    // Delete file and its tombstone
+                    // No versioning: Delete file so it can be replaced (DELETE operation)
                     response = target.request().delete();
                     if (response.getStatus() != 204) {
+                        // Error
                         String body = response.readEntity(String.class);
                         String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
                         log.error(msg);
                         throw new IOException(msg);
                     }
+                    // Delete tombstone (DELETE operation)
                     response = target.path("fcr:tombstone").request().delete();
-                    // Add file again
                     if (response.getStatus() == 204) {
+                        // Add file again (PUT operation)
+                        // "Content-Disposition" attribute contains the file name
                         response = target.request().header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"")
                                 .put(fileEntity);
                     } else {
+                        // Error
                         String body = response.readEntity(String.class);
                         String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
                         log.error(msg);
@@ -276,24 +298,30 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     }
                 }
             } else {
-                // Add new file
+                // File does not exist yet, so just add it (PUT operation)
+                // "Content-Disposition" attribute contains the file name
                 response = target.request().header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"").put(
                         fileEntity);
             }
+            // Handle response to the file adding operation (both versioned or not)
             switch (response.getStatus()) {
                 case 201:
                     if (exists) {
                         if (version != null) {
+                            // Successfully added new version
                             log.debug("New resource version " + version + " added: " + response.getHeaderString("location").replace(transactionUrl,
                                     fedoraUrl));
                         } else {
+                            // Successfully deleted and re-added file
                             log.debug("Resource updated: " + response.getHeaderString("location").replace(transactionUrl, fedoraUrl));
                         }
                     } else {
+                        // Added completely new file
                         log.debug("New resource added: " + response.getHeaderString("location").replace(transactionUrl, fedoraUrl));
                     }
                     break;
                 default:
+                    // Error
                     String body = response.readEntity(String.class);
                     log.error(response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body);
                     break;
@@ -305,6 +333,10 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     }
 
     /**
+     * Creates the container hierarchy for the record (which is .../records/<record identifier>/media/). Containers along the path can be created
+     * implicitly (i.e. creating "records/PPN123/media" will also created "/records" and "/records/PPN123"), but implicitly created containers have
+     * the "pairtree" type and cannot contain binary documents. Therefore the containers for the record identifier and the media folder are created
+     * explicitly here. Apache HTTP client is used here because it supports PUT operations without an entity.
      * 
      * @param rootUrl
      * @param identifier
@@ -313,21 +345,24 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     private static boolean createContainerHieararchyForRecord(String rootUrl, String identifier) {
         String recordUrl = rootUrl + "/" + identifier;
 
-        // Using Apache client because it supports PUT without an entity
         try (CloseableHttpClient httpClient = HttpClients.createMinimal()) {
             {
                 // Create proper (non-pairtree) container for the record identifier
                 HttpPut put = new HttpPut(recordUrl);
+                // Create container (PUT operation with no entity - an empty entity will create an empty file instead)
                 try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
                     switch (httpResponse.getStatusLine().getStatusCode()) {
                         case 201:
+                            // Container created
                             log.info("Container created: " + recordUrl);
                             break;
                         case 204:
                         case 409:
+                            // Container already exists
                             log.debug("Container already exists: " + recordUrl);
                             break;
                         default:
+                            // Error
                             String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
                             log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
                                     + body);
@@ -339,16 +374,20 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 // Create proper (non-pairtree) container for the media
                 String mediaUrl = recordUrl + "/media";
                 HttpPut put = new HttpPut(recordUrl + "/media");
+                // Create container (PUT operation with no entity - an empty entity will create an empty file instead)
                 try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
                     switch (httpResponse.getStatusLine().getStatusCode()) {
                         case 201:
+                            // Container created
                             log.info("Container created: " + mediaUrl);
                             break;
                         case 204:
                         case 409:
+                            // Container already exists
                             log.debug("Container already exists: " + mediaUrl);
                             break;
                         default:
+                            // Error
                             String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
                             log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
                                     + body);
@@ -364,6 +403,17 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         return true;
     }
 
+    /**
+     * Generates METS file from the given process.
+     * @param process
+     * @param destination Target path
+     * @return
+     * @throws UGHException
+     * @throws DAOException
+     * @throws InterruptedException
+     * @throws IOException
+     * @throws SwapException
+     */
     private Path createMetsFile(Process process, String destination) throws UGHException, DAOException, InterruptedException, IOException,
             SwapException {
         Prefs prefs = process.getRegelsatz().getPreferences();
@@ -390,9 +440,9 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         VirtualFileGroup v = new VirtualFileGroup();
         v.setName("PRESENTATION");
         v.setPathToFiles(rootUrl);
-        v.setMimetype("image/html-sandboxed");
-//        v.setMimetype("image/tiff");
-        v.setFileSuffix("tif");
+        v.setMimetype("image/html-sandboxed"); // mime type used by Goobi viewer to identify external image resources
+        //        v.setMimetype("image/tiff");
+        v.setFileSuffix("tif"); // TODO File suffix as a method argument?
         mm.getDigitalDocument().getFileSet().addVirtualFileGroup(v);
 
         // Replace rights and digiprov entries.
@@ -445,6 +495,10 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         return true;
     }
 
+    /**
+     * Replaces Goobi-generated file URLs in PRESENATATION (and FEDORA) METS file groups with URLs generated in this profile.
+     * @param metsfile
+     */
     private void overwriteUrls(String metsfile) {
         Namespace mets = Namespace.getNamespace("mets", "http://www.loc.gov/METS/");
         Namespace xlink = Namespace.getNamespace("xlink", "http://www.w3.org/1999/xlink");
@@ -459,11 +513,11 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     for (int i = 0; i < fileList.size(); i++) {
                         Element file = fileList.get(i);
                         Element flocat = file.getChild("FLocat", mets);
-                        
+
                         // cut off the version path of the url
                         String myurl = imageDataList.get(i);
-                        if (myurl.contains("/fcr:versions")){
-                        	myurl = myurl.substring(0, myurl.indexOf("/fcr:versions"));
+                        if (myurl.contains("/fcr:versions")) {
+                            myurl = myurl.substring(0, myurl.indexOf("/fcr:versions"));
                         }
                         flocat.setAttribute("href", myurl, xlink);
                     }
