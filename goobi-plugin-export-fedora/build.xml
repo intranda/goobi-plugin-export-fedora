@@ -2,12 +2,12 @@
 
 <!-- ADJUST PROJECT NAME, FILENAME AND INCLUDED CLASSES FOR JENKINS IF YOU COPY THIS FILE TO A NEW PROJECT-->
 
-<project name="Goobi Fedora Export Plugin for PROV" basedir="." default="deploy">
+<project name="Goobi Export Plugin - Fedora" basedir="." default="deploy">
 
 	<!-- ================================= 
 	        properties             
 	     ================================= -->
-	<property name="filename" value="plugin_prov_export_fedora" />
+	<property name="filename" value="plugin_intranda_export_fedora" />
 	<property name="dir.build" value="bin" />
 	<property name="dir.src" value="src" />
 	<property name="dir.test" value="test/src" />

@@ -72,7 +72,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     private static final Logger log = Logger.getLogger(FedoraExportPlugin.class);
 
-    private static final String PLUGIN_NAME = "prov_export_fedora";
+    private static final String PLUGIN_NAME = "intranda_step_fedoraExport";
 
     private static String fedoraUrl;
 
@@ -439,58 +439,29 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
      * @return
      */
     private static boolean createContainer(String url) {
-//        String recordUrl = rootUrl + "/" + identifier;
-
         try (CloseableHttpClient httpClient = HttpClients.createMinimal()) {
-//            {
-                // Create proper (non-pairtree) container for the record identifier
-                HttpPut put = new HttpPut(url);
-                // Create container (PUT operation with no entity - an empty entity will create an empty file instead)
-                try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
-                    switch (httpResponse.getStatusLine().getStatusCode()) {
-                        case 201:
-                            // Container created
-                            log.info("Container created: " + url);
-                            break;
-                        case 204:
-                        case 409:
-                            // Container already exists
-                            log.debug("Container already exists: " + url);
-                            break;
-                        default:
-                            // Error
-                            String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
-                            log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
-                                    + body);
-                            return false;
-                    }
+            // Create proper (non-pairtree) container for the record identifier
+            HttpPut put = new HttpPut(url);
+            // Create container (PUT operation with no entity - an empty entity will create an empty file instead)
+            try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
+                switch (httpResponse.getStatusLine().getStatusCode()) {
+                    case 201:
+                        // Container created
+                        log.info("Container created: " + url);
+                        break;
+                    case 204:
+                    case 409:
+                        // Container already exists
+                        log.debug("Container already exists: " + url);
+                        break;
+                    default:
+                        // Error
+                        String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
+                        log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
+                                + body);
+                        return false;
                 }
-//            }
-//            {
-//                // Create proper (non-pairtree) container for the media
-//                String mediaUrl = recordUrl + "/media";
-//                HttpPut put = new HttpPut(recordUrl + "/media");
-//                // Create container (PUT operation with no entity - an empty entity will create an empty file instead)
-//                try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
-//                    switch (httpResponse.getStatusLine().getStatusCode()) {
-//                        case 201:
-//                            // Container created
-//                            log.info("Container created: " + mediaUrl);
-//                            break;
-//                        case 204:
-//                        case 409:
-//                            // Container already exists
-//                            log.debug("Container already exists: " + mediaUrl);
-//                            break;
-//                        default:
-//                            // Error
-//                            String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
-//                            log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
-//                                    + body);
-//                            return false;
-//                    }
-//                }
-//            }
+            }
         } catch (IOException e) {
             log.error(e.getMessage(), e);
             return false;

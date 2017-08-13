@@ -5,8 +5,4 @@ Export DMS
 Automatische Aufgabe
 Plugin für Arbeitsschritt: FedoraExport
 
-3.) Projekt konfigurieren:
-DMS-Export-Ordner für XML-Datei: /opt/digiverso/viewer/hotfolder/
-DMS-Export-Images-Ordner: URL zur REST Api von Fedora
-
-4.) Export starten 
+3.) Export starten 
