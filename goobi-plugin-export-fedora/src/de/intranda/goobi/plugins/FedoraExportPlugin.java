@@ -27,6 +27,7 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.log4j.Logger;
 import org.goobi.beans.Process;
+import org.goobi.production.enums.LogType;
 import org.goobi.production.enums.PluginType;
 import org.goobi.production.plugin.interfaces.IExportPlugin;
 import org.goobi.production.plugin.interfaces.IPlugin;
@@ -71,7 +72,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     private static final Logger log = Logger.getLogger(FedoraExportPlugin.class);
 
-    private static final String PLUGIN_NAME = "intranda_step_fedoraExport";
+    private static final String PLUGIN_NAME = "prov_export_fedora";
 
     private static String fedoraUrl;
 
@@ -102,21 +103,33 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
     public boolean startExport(Process process) throws IOException, InterruptedException, DocStructHasNoTypeException, PreferencesException,
             WriteException, MetadataTypeNotAllowedException, ExportFileException, UghHelperException, ReadException, SwapException, DAOException,
             TypeNotAllowedForParentException {
-
         String path = new VariableReplacer(null, null, process, null).replace(process.getProjekt().getDmsImportRootPath());
         return startExport(process, path);
     }
 
+    @Override
+    public boolean startExport(Process process, String destination) throws IOException, InterruptedException, DocStructHasNoTypeException,
+            PreferencesException, WriteException, MetadataTypeNotAllowedException, ExportFileException, UghHelperException, ReadException,
+            SwapException, DAOException, TypeNotAllowedForParentException {
+        return ingestData(process, destination);
+    }
+    
     /**
-     * 
      * @param folder
      * @param process
      * @param destination
      * @param useVersioning If true, new versions of the existing resource will be added; if false, the resource will be deleted and created anew (all
      *            previous versions will be deleted).
      */
-    private void ingestData(String folder, Process process, String destination, boolean useVersioning) {
+    private boolean ingestData(Process process, String destination) {
         rootUrl = fedoraUrl = ConfigPlugins.getPluginConfig(this).getString("fedoraUrl", "http://localhost:8080/fedora/rest");
+        
+        boolean useVersioning = ConfigPlugins.getPluginConfig(this).getBoolean("useVersioning", true);
+        boolean ingestMasterImages = ConfigPlugins.getPluginConfig(this).getBoolean("ingestMasterImages", true);
+        boolean ingestMediaImages = ConfigPlugins.getPluginConfig(this).getBoolean("ingestMediaImages", true);
+        boolean ingestMetsFile = ConfigPlugins.getPluginConfig(this).getBoolean("ingestMetsFile", true);
+        boolean exportMetsFile = ConfigPlugins.getPluginConfig(this).getBoolean("exportMetsFile", true);
+        
         String identifier = MetadataManager.getMetadataValue(process.getId(), "CatalogIDDigital");
 
         Client client = ClientBuilder.newClient();
@@ -131,78 +144,160 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             // If not using versioning remove resource prior to ingesting to speed things up
             if (!useVersioning) {
                 WebTarget recordContainer = ingestLocation.path("records/" + identifier);
-                // Check whether the container for this record already exists (GET operation; returns 200 if exists)
-                Response response = recordContainer.request().get();
-                if (response.getStatus() == 200) {
-                    log.debug("Record container already exists: " + recordContainer.getUri().toString());
-                    // Delete the container (DELETE operation)
-                    response = recordContainer.request().delete();
-                    switch (response.getStatus()) {
-                        case 204:
-                            // Each deleted resource leaves a tombstone which prevents a resource with the same name from being created, so the tombstone has to be deleted as well (DELETE operation)
-                            response = recordContainer.path("fcr:tombstone").request().delete();
-                            switch (response.getStatus()) {
-                                case 204:
-                                    // Deleted successfully
-                                    log.debug("Record container deleted");
-                                    break;
-                                default:
-                                    // Error
-                                    String body = response.readEntity(String.class);
-                                    String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
-                                    log.error(msg);
-                                    return;
-                            }
-                            break;
-                        default:
-                            // Error
-                            String body = response.readEntity(String.class);
-                            String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
-                            log.error(msg);
-                            return;
-                    }
+                if (!deleteResource(process, recordContainer)){
+                	return false;
                 }
             }
-            // Create the required container hierarchy
-            if (!createContainerHieararchyForRecord(transactionUrl + "/records", identifier)) {
-                return;
+            // Create the required container hierarchy for the process identifier
+            String containerUrl = transactionUrl + "/records/" +  identifier;
+            boolean containerCreated = createContainer(containerUrl);
+            if (!containerCreated) {
+            	Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful (container creation for " + containerUrl + ")");
+                Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful as the container could not be created for " + containerUrl);
+                return false;
             }
-
+            if (ingestMediaImages){
+	            containerCreated = createContainer(containerUrl + "/media");
+	            if (!containerCreated) {
+	            	Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful (container creation for " + containerUrl + "media)");
+	                Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful as the container could not be created for " + containerUrl + "/media");
+	                return false;
+	            }
+            }
+            if (ingestMasterImages){
+		        containerCreated = createContainer(containerUrl + "/master");
+	            if (!containerCreated) {
+	            	Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful (container creation for " + containerUrl + "/master)");
+	                Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful as the container could not be created for " + containerUrl + "/master");
+	                return false;
+	            }
+            }
+            
             // Name for the new version, if using versioning
             String version = useVersioning ? "goobi-export." + formatter.print(System.currentTimeMillis()) : null;
 
             try {
                 WebTarget recordUrl = ingestLocation.path("records").path(identifier); // URL for the record folder
-                WebTarget mediaUrl = recordUrl.path("media"); // URL for the media folder
 
-                // Add images
-                List<Path> filesToIngest = NIOFileUtils.listFiles(folder);
-                for (Path file : filesToIngest) {
-                    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()), version, transactionUrl);
-                    if (fileUrl != null) {
-                        imageDataList.add(fileUrl.replace(transactionUrl, fedoraUrl));
-                    }
-                    // Refresh transaction after each file to prevent timeouts
-                    ingestLocation.path("fcr:tx").request().post(null);
+                // if master images shall be ingested do it
+                if (ingestMasterImages){
+                	Path folder = Paths.get(process.getImagesOrigDirectory(false));
+                	addFolderContent(folder, "master", transactionUrl, ingestLocation, version, recordUrl);
                 }
-
+                // if media images shall be ingested do it
+                if (ingestMediaImages){
+                	Path folder = Paths.get(process.getImagesTifDirectory(false));
+                	addFolderContent(folder, "media", transactionUrl, ingestLocation, version, recordUrl);
+                }
+                
                 // Create METS file in the process folder and add it to the repository 
-                Path metsFile = createMetsFile(process, process.getProcessDataDirectory());
-                addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), version, transactionUrl);
-
-                // Commit transaction
+                Path metsFile = null;
+                if (exportMetsFile || ingestMetsFile){
+                	metsFile = createMetsFile(process, process.getProcessDataDirectory());
+                }
+                // ingest the METS file if this is configured
+                if (ingestMetsFile){
+                	addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), version, transactionUrl);
+                }
+                
+                // Finish the entire ingest by committing the transaction
                 ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
 
-                // Copy METS file to export destination (e.g. hotfolder)
-                Path exportMetsFile = Paths.get(destination, metsFile.getFileName().toString());
-                Files.copy(metsFile, exportMetsFile, StandardCopyOption.REPLACE_EXISTING);
+                // At the end export the METS file to export destination (e.g. hotfolder) if this is configured
+                if (exportMetsFile){
+                	Path pathExportMetsFile = Paths.get(destination, metsFile.getFileName().toString());
+                	Files.copy(metsFile, pathExportMetsFile, StandardCopyOption.REPLACE_EXISTING);
+                }
+                
             } catch (IOException | UGHException | DAOException | InterruptedException | SwapException e) {
                 // Roll back transaction, if anything fails
                 log.error(e.getMessage(), e);
                 ingestLocation.path("fcr:tx").path("fcr:rollback").request().post(null);
+            	Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful and the transaction got rolled back: " + e.getMessage());
+                Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful and the transaction got rolled back: " + e.getMessage());
+                return false;
             }
         }
+        Helper.addMessageToProcessLog(process.getId(), LogType.INFO, "Ingest into Fedora successfully finished.");
+        Helper.setMeldung(null, process.getTitel() + ": ", "ExportFinished");
+        return true;
     }
+
+	/**
+	 * Add the entire content of a given folder into fedora and put it all under a 
+	 * name that is passed over as parameter label
+	 * 
+	 * @param folder
+	 * @param label
+	 * @param transactionUrl
+	 * @param ingestLocation
+	 * @param version
+	 * @param recordUrl
+	 * @throws IOException
+	 * @throws InterruptedException
+	 * @throws SwapException
+	 * @throws DAOException
+	 */
+	public void addFolderContent(Path folder, String label, String transactionUrl, WebTarget ingestLocation, String version,
+	        WebTarget recordUrl) throws IOException, InterruptedException, SwapException, DAOException {
+		WebTarget mediaUrl = recordUrl.path(label); // URL for the folder with the correct label
+		List<Path> filesToIngest = NIOFileUtils.listFiles(folder.toString());
+		for (Path file : filesToIngest) {
+		    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()), version, transactionUrl);
+		    if (fileUrl != null) {
+		        imageDataList.add(fileUrl.replace(transactionUrl, fedoraUrl));
+		    }
+		    // Refresh transaction after each file to prevent timeouts
+		    ingestLocation.path("fcr:tx").request().post(null);
+		}
+	}
+
+	/**
+	 * Delete a resource form fedora based on the container name
+	 * 
+	 * @param process
+	 * @param recordContainer the container name to delete
+	 * @return
+	 */
+	public boolean deleteResource(Process process, WebTarget recordContainer) {
+		// Check whether the container for this record already exists (GET operation; returns 200 if exists)
+		Response response = recordContainer.request().get();
+		if (response.getStatus() == 200) {
+		    log.debug("Record container already exists: " + recordContainer.getUri().toString());
+		    // Delete the container (DELETE operation)
+		    response = recordContainer.request().delete();
+		    switch (response.getStatus()) {
+		        case 204:
+		            // Each deleted resource leaves a tombstone which prevents a resource with the same name 
+		        	// from being created, so the tombstone has to be deleted as well (DELETE operation)
+		            response = recordContainer.path("fcr:tombstone").request().delete();
+		            switch (response.getStatus()) {
+		                case 204:
+		                    // Deleted successfully
+		                    log.debug("Record container deleted");
+		                    break;
+		                default:
+		                    // Error occured while deleting the tombstone
+		                    String body = response.readEntity(String.class);
+		                    String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
+		                    log.error(msg);
+		                    Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful: " + msg);
+		                    Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful: " + msg);
+		                    return false;
+		            }
+		            break;
+		        default:
+		            // a general error occurred and gets logged
+		            String body = response.readEntity(String.class);
+		            String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
+		            log.error(msg);
+		            Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful: " + msg);
+		            Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful: " + msg);
+		            return false;
+		    }
+		}
+		return true;
+	}
 
     /**
      * Adds the given binary file to Fedora
@@ -343,24 +438,24 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
      * @param identifier
      * @return
      */
-    private static boolean createContainerHieararchyForRecord(String rootUrl, String identifier) {
-        String recordUrl = rootUrl + "/" + identifier;
+    private static boolean createContainer(String url) {
+//        String recordUrl = rootUrl + "/" + identifier;
 
         try (CloseableHttpClient httpClient = HttpClients.createMinimal()) {
-            {
+//            {
                 // Create proper (non-pairtree) container for the record identifier
-                HttpPut put = new HttpPut(recordUrl);
+                HttpPut put = new HttpPut(url);
                 // Create container (PUT operation with no entity - an empty entity will create an empty file instead)
                 try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
                     switch (httpResponse.getStatusLine().getStatusCode()) {
                         case 201:
                             // Container created
-                            log.info("Container created: " + recordUrl);
+                            log.info("Container created: " + url);
                             break;
                         case 204:
                         case 409:
                             // Container already exists
-                            log.debug("Container already exists: " + recordUrl);
+                            log.debug("Container already exists: " + url);
                             break;
                         default:
                             // Error
@@ -370,32 +465,32 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                             return false;
                     }
                 }
-            }
-            {
-                // Create proper (non-pairtree) container for the media
-                String mediaUrl = recordUrl + "/media";
-                HttpPut put = new HttpPut(recordUrl + "/media");
-                // Create container (PUT operation with no entity - an empty entity will create an empty file instead)
-                try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
-                    switch (httpResponse.getStatusLine().getStatusCode()) {
-                        case 201:
-                            // Container created
-                            log.info("Container created: " + mediaUrl);
-                            break;
-                        case 204:
-                        case 409:
-                            // Container already exists
-                            log.debug("Container already exists: " + mediaUrl);
-                            break;
-                        default:
-                            // Error
-                            String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
-                            log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
-                                    + body);
-                            return false;
-                    }
-                }
-            }
+//            }
+//            {
+//                // Create proper (non-pairtree) container for the media
+//                String mediaUrl = recordUrl + "/media";
+//                HttpPut put = new HttpPut(recordUrl + "/media");
+//                // Create container (PUT operation with no entity - an empty entity will create an empty file instead)
+//                try (CloseableHttpResponse httpResponse = httpClient.execute(put); StringWriter writer = new StringWriter()) {
+//                    switch (httpResponse.getStatusLine().getStatusCode()) {
+//                        case 201:
+//                            // Container created
+//                            log.info("Container created: " + mediaUrl);
+//                            break;
+//                        case 204:
+//                        case 409:
+//                            // Container already exists
+//                            log.debug("Container already exists: " + mediaUrl);
+//                            break;
+//                        default:
+//                            // Error
+//                            String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
+//                            log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
+//                                    + body);
+//                            return false;
+//                    }
+//                }
+//            }
         } catch (IOException e) {
             log.error(e.getMessage(), e);
             return false;
@@ -428,7 +523,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         MetadatenImagesHelper mih = new MetadatenImagesHelper(prefs, dd);
 
         if (dd.getFileSet() == null || dd.getFileSet().getAllFiles().isEmpty()) {
-            Helper.setMeldung(process.getTitel() + ": digital document does not contain images; temporarily adding them for mets file creation");
+            Helper.setMeldung(process.getTitel() + ": Digital document does not contain images; temporarily adding them for mets file creation");
             mih.createPagination(process, null);
         } else {
             mih.checkImageNames(process);
@@ -481,19 +576,6 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         Path metsFilePath = Paths.get(destination, process.getTitel() + ".xml");
         Files.copy(tempFile, metsFilePath, NIOFileUtils.STANDARD_COPY_OPTIONS);
         return metsFilePath;
-    }
-
-    @Override
-    public boolean startExport(Process process, String destination) throws IOException, InterruptedException, DocStructHasNoTypeException,
-            PreferencesException, WriteException, MetadataTypeNotAllowedException, ExportFileException, UghHelperException, ReadException,
-            SwapException, DAOException, TypeNotAllowedForParentException {
-        //        fedoraUrl = process.getProjekt().getDmsImportImagesPath();
-        Path imageFolder = Paths.get(process.getImagesTifDirectory(true));
-        ingestData(imageFolder.toString(), process, destination, ConfigPlugins.getPluginConfig(this).getBoolean("useVersioning", false));
-
-        Helper.setMeldung(null, process.getTitel() + ": ", "ExportFinished");
-
-        return true;
     }
 
     /**

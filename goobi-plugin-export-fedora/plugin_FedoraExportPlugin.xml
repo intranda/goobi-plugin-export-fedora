@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <config_plugin>
-
-	<fedoraUrl>http://localhost:8081/fedora/rest</fedoraUrl>
-	<!-- JAR: <fedoraUrl>http://localhost:8081/rest</fedoraUrl> -->
+	<fedoraUrl>http://localhost:8888/fedora/rest</fedoraUrl>
 	<useVersioning>false</useVersioning>
 	
+	<ingestMasterImages>true</ingestMasterImages>
+	<ingestMediaImages>true</ingestMediaImages>
+	
+	<ingestMetsFile>true</ingestMetsFile>
+	<exportMetsFile>true</exportMetsFile>
 </config_plugin>
