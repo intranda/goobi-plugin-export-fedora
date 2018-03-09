@@ -72,7 +72,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     private static final Logger log = Logger.getLogger(FedoraExportPlugin.class);
 
-    private static final String PLUGIN_NAME = "intranda_step_fedoraExport";
+    private static final String PLUGIN_NAME = "intranda_export_fedora";
 
     private static String fedoraUrl;
 
@@ -122,13 +122,13 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
      *            previous versions will be deleted).
      */
     private boolean ingestData(Process process, String destination) {
-        rootUrl = fedoraUrl = ConfigPlugins.getPluginConfig(this).getString("fedoraUrl", "http://localhost:8080/fedora/rest");
+        rootUrl = fedoraUrl = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getString("fedoraUrl", "http://localhost:8080/fedora/rest");
         
-        boolean useVersioning = ConfigPlugins.getPluginConfig(this).getBoolean("useVersioning", true);
-        boolean ingestMasterImages = ConfigPlugins.getPluginConfig(this).getBoolean("ingestMasterImages", true);
-        boolean ingestMediaImages = ConfigPlugins.getPluginConfig(this).getBoolean("ingestMediaImages", true);
-        boolean ingestMetsFile = ConfigPlugins.getPluginConfig(this).getBoolean("ingestMetsFile", true);
-        boolean exportMetsFile = ConfigPlugins.getPluginConfig(this).getBoolean("exportMetsFile", true);
+        boolean useVersioning = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("useVersioning", true);
+        boolean ingestMasterImages = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("ingestMasterImages", true);
+        boolean ingestMediaImages = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("ingestMediaImages", true);
+        boolean ingestMetsFile = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("ingestMetsFile", true);
+        boolean exportMetsFile = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("exportMetsFile", true);
         
         String identifier = MetadataManager.getMetadataValue(process.getId(), "CatalogIDDigital");
 
