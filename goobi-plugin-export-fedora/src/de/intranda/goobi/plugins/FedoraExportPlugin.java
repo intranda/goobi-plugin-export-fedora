@@ -113,7 +113,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             SwapException, DAOException, TypeNotAllowedForParentException {
         return ingestData(process, destination);
     }
-    
+
     /**
      * @param folder
      * @param process
@@ -123,13 +123,13 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
      */
     private boolean ingestData(Process process, String destination) {
         rootUrl = fedoraUrl = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getString("fedoraUrl", "http://localhost:8080/fedora/rest");
-        
+
         boolean useVersioning = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("useVersioning", true);
         boolean ingestMasterImages = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("ingestMasterImages", true);
         boolean ingestMediaImages = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("ingestMediaImages", true);
         boolean ingestMetsFile = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("ingestMetsFile", true);
         boolean exportMetsFile = ConfigPlugins.getPluginConfig(PLUGIN_NAME).getBoolean("exportMetsFile", true);
-        
+
         String identifier = MetadataManager.getMetadataValue(process.getId(), "CatalogIDDigital");
 
         Client client = ClientBuilder.newClient();
@@ -144,35 +144,41 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             // If not using versioning remove resource prior to ingesting to speed things up
             if (!useVersioning) {
                 WebTarget recordContainer = ingestLocation.path("records/" + identifier);
-                if (!deleteResource(process, recordContainer)){
-                	return false;
+                if (!deleteResource(process, recordContainer)) {
+                    return false;
                 }
             }
             // Create the required container hierarchy for the process identifier
-            String containerUrl = transactionUrl + "/records/" +  identifier;
+            String containerUrl = transactionUrl + "/records/" + identifier;
             boolean containerCreated = createContainer(containerUrl);
             if (!containerCreated) {
-            	Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful (container creation for " + containerUrl + ")");
-                Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful as the container could not be created for " + containerUrl);
+                Helper.addMessageToProcessLog(process.getId(), LogType.ERROR,
+                        "The ingest into Fedora was not successful (container creation for " + containerUrl + ")");
+                Helper.setFehlerMeldung(null, process.getTitel() + ": ",
+                        "The ingest into Fedora was not successful as the container could not be created for " + containerUrl);
                 return false;
             }
-            if (ingestMediaImages){
-	            containerCreated = createContainer(containerUrl + "/media");
-	            if (!containerCreated) {
-	            	Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful (container creation for " + containerUrl + "media)");
-	                Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful as the container could not be created for " + containerUrl + "/media");
-	                return false;
-	            }
+            if (ingestMediaImages) {
+                containerCreated = createContainer(containerUrl + "/media");
+                if (!containerCreated) {
+                    Helper.addMessageToProcessLog(process.getId(), LogType.ERROR,
+                            "The ingest into Fedora was not successful (container creation for " + containerUrl + "media)");
+                    Helper.setFehlerMeldung(null, process.getTitel() + ": ",
+                            "The ingest into Fedora was not successful as the container could not be created for " + containerUrl + "/media");
+                    return false;
+                }
             }
-            if (ingestMasterImages){
-		        containerCreated = createContainer(containerUrl + "/master");
-	            if (!containerCreated) {
-	            	Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful (container creation for " + containerUrl + "/master)");
-	                Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful as the container could not be created for " + containerUrl + "/master");
-	                return false;
-	            }
+            if (ingestMasterImages) {
+                containerCreated = createContainer(containerUrl + "/master");
+                if (!containerCreated) {
+                    Helper.addMessageToProcessLog(process.getId(), LogType.ERROR,
+                            "The ingest into Fedora was not successful (container creation for " + containerUrl + "/master)");
+                    Helper.setFehlerMeldung(null, process.getTitel() + ": ",
+                            "The ingest into Fedora was not successful as the container could not be created for " + containerUrl + "/master");
+                    return false;
+                }
             }
-            
+
             // Name for the new version, if using versioning
             String version = useVersioning ? "goobi-export." + formatter.print(System.currentTimeMillis()) : null;
 
@@ -180,41 +186,43 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                 WebTarget recordUrl = ingestLocation.path("records").path(identifier); // URL for the record folder
 
                 // if master images shall be ingested do it
-                if (ingestMasterImages){
-                	Path folder = Paths.get(process.getImagesOrigDirectory(false));
-                	addFolderContent(folder, "master", transactionUrl, ingestLocation, version, recordUrl);
+                if (ingestMasterImages) {
+                    Path folder = Paths.get(process.getImagesOrigDirectory(false));
+                    addFolderContent(folder, "master", transactionUrl, ingestLocation, version, recordUrl);
                 }
                 // if media images shall be ingested do it
-                if (ingestMediaImages){
-                	Path folder = Paths.get(process.getImagesTifDirectory(false));
-                	addFolderContent(folder, "media", transactionUrl, ingestLocation, version, recordUrl);
+                if (ingestMediaImages) {
+                    Path folder = Paths.get(process.getImagesTifDirectory(false));
+                    addFolderContent(folder, "media", transactionUrl, ingestLocation, version, recordUrl);
                 }
-                
+
                 // Create METS file in the process folder and add it to the repository 
                 Path metsFile = null;
-                if (exportMetsFile || ingestMetsFile){
-                	metsFile = createMetsFile(process, process.getProcessDataDirectory());
+                if (exportMetsFile || ingestMetsFile) {
+                    metsFile = createMetsFile(process, process.getProcessDataDirectory());
                 }
                 // ingest the METS file if this is configured
-                if (ingestMetsFile){
-                	addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), version, transactionUrl);
+                if (ingestMetsFile) {
+                    addFileResource(metsFile, recordUrl.path(metsFile.getFileName().toString()), version, transactionUrl);
                 }
-                
+
                 // Finish the entire ingest by committing the transaction
                 ingestLocation.path("fcr:tx").path("fcr:commit").request().post(null);
 
                 // At the end export the METS file to export destination (e.g. hotfolder) if this is configured
-                if (exportMetsFile){
-                	Path pathExportMetsFile = Paths.get(destination, metsFile.getFileName().toString());
-                	Files.copy(metsFile, pathExportMetsFile, StandardCopyOption.REPLACE_EXISTING);
+                if (exportMetsFile) {
+                    Path pathExportMetsFile = Paths.get(destination, metsFile.getFileName().toString());
+                    Files.copy(metsFile, pathExportMetsFile, StandardCopyOption.REPLACE_EXISTING);
                 }
-                
+
             } catch (IOException | UGHException | DAOException | InterruptedException | SwapException e) {
                 // Roll back transaction, if anything fails
                 log.error(e.getMessage(), e);
                 ingestLocation.path("fcr:tx").path("fcr:rollback").request().post(null);
-            	Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful and the transaction got rolled back: " + e.getMessage());
-                Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful and the transaction got rolled back: " + e.getMessage());
+                Helper.addMessageToProcessLog(process.getId(), LogType.ERROR,
+                        "The ingest into Fedora was not successful and the transaction got rolled back: " + e.getMessage());
+                Helper.setFehlerMeldung(null, process.getTitel() + ": ",
+                        "The ingest into Fedora was not successful and the transaction got rolled back: " + e.getMessage());
                 return false;
             }
         }
@@ -223,81 +231,80 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
         return true;
     }
 
-	/**
-	 * Add the entire content of a given folder into fedora and put it all under a 
-	 * name that is passed over as parameter label
-	 * 
-	 * @param folder
-	 * @param label
-	 * @param transactionUrl
-	 * @param ingestLocation
-	 * @param version
-	 * @param recordUrl
-	 * @throws IOException
-	 * @throws InterruptedException
-	 * @throws SwapException
-	 * @throws DAOException
-	 */
-	public void addFolderContent(Path folder, String label, String transactionUrl, WebTarget ingestLocation, String version,
-	        WebTarget recordUrl) throws IOException, InterruptedException, SwapException, DAOException {
-		WebTarget mediaUrl = recordUrl.path(label); // URL for the folder with the correct label
-		List<Path> filesToIngest = NIOFileUtils.listFiles(folder.toString());
-		for (Path file : filesToIngest) {
-		    String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()), version, transactionUrl);
-		    if (fileUrl != null) {
-		        imageDataList.add(fileUrl.replace(transactionUrl, fedoraUrl));
-		    }
-		    // Refresh transaction after each file to prevent timeouts
-		    ingestLocation.path("fcr:tx").request().post(null);
-		}
-	}
+    /**
+     * Add the entire content of a given folder into fedora and put it all under a name that is passed over as parameter label
+     * 
+     * @param folder
+     * @param label
+     * @param transactionUrl
+     * @param ingestLocation
+     * @param version
+     * @param recordUrl
+     * @throws IOException
+     * @throws InterruptedException
+     * @throws SwapException
+     * @throws DAOException
+     */
+    public void addFolderContent(Path folder, String label, String transactionUrl, WebTarget ingestLocation, String version, WebTarget recordUrl)
+            throws IOException, InterruptedException, SwapException, DAOException {
+        WebTarget mediaUrl = recordUrl.path(label); // URL for the folder with the correct label
+        List<Path> filesToIngest = new NIOFileUtils().listFiles(folder.toString());
+        for (Path file : filesToIngest) {
+            String fileUrl = addFileResource(file, mediaUrl.path(file.getFileName().toString()), version, transactionUrl);
+            if (fileUrl != null) {
+                imageDataList.add(fileUrl.replace(transactionUrl, fedoraUrl));
+            }
+            // Refresh transaction after each file to prevent timeouts
+            ingestLocation.path("fcr:tx").request().post(null);
+        }
+    }
 
-	/**
-	 * Delete a resource form fedora based on the container name
-	 * 
-	 * @param process
-	 * @param recordContainer the container name to delete
-	 * @return
-	 */
-	public boolean deleteResource(Process process, WebTarget recordContainer) {
-		// Check whether the container for this record already exists (GET operation; returns 200 if exists)
-		Response response = recordContainer.request().get();
-		if (response.getStatus() == 200) {
-		    log.debug("Record container already exists: " + recordContainer.getUri().toString());
-		    // Delete the container (DELETE operation)
-		    response = recordContainer.request().delete();
-		    switch (response.getStatus()) {
-		        case 204:
-		            // Each deleted resource leaves a tombstone which prevents a resource with the same name 
-		        	// from being created, so the tombstone has to be deleted as well (DELETE operation)
-		            response = recordContainer.path("fcr:tombstone").request().delete();
-		            switch (response.getStatus()) {
-		                case 204:
-		                    // Deleted successfully
-		                    log.debug("Record container deleted");
-		                    break;
-		                default:
-		                    // Error occured while deleting the tombstone
-		                    String body = response.readEntity(String.class);
-		                    String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
-		                    log.error(msg);
-		                    Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful: " + msg);
-		                    Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful: " + msg);
-		                    return false;
-		            }
-		            break;
-		        default:
-		            // a general error occurred and gets logged
-		            String body = response.readEntity(String.class);
-		            String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
-		            log.error(msg);
-		            Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful: " + msg);
-		            Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful: " + msg);
-		            return false;
-		    }
-		}
-		return true;
-	}
+    /**
+     * Delete a resource form fedora based on the container name
+     * 
+     * @param process
+     * @param recordContainer the container name to delete
+     * @return
+     */
+    public boolean deleteResource(Process process, WebTarget recordContainer) {
+        // Check whether the container for this record already exists (GET operation; returns 200 if exists)
+        Response response = recordContainer.request().get();
+        if (response.getStatus() == 200) {
+            log.debug("Record container already exists: " + recordContainer.getUri().toString());
+            // Delete the container (DELETE operation)
+            response = recordContainer.request().delete();
+            switch (response.getStatus()) {
+                case 204:
+                    // Each deleted resource leaves a tombstone which prevents a resource with the same name 
+                    // from being created, so the tombstone has to be deleted as well (DELETE operation)
+                    response = recordContainer.path("fcr:tombstone").request().delete();
+                    switch (response.getStatus()) {
+                        case 204:
+                            // Deleted successfully
+                            log.debug("Record container deleted");
+                            break;
+                        default:
+                            // Error occured while deleting the tombstone
+                            String body = response.readEntity(String.class);
+                            String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
+                            log.error(msg);
+                            Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful: " + msg);
+                            Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful: " + msg);
+                            return false;
+                    }
+                    break;
+                default:
+                    // a general error occurred and gets logged
+                    String body = response.readEntity(String.class);
+                    String msg = response.getStatus() + ": " + response.getStatusInfo().getReasonPhrase() + " - " + body;
+                    log.error(msg);
+                    Helper.addMessageToProcessLog(process.getId(), LogType.ERROR, "The ingest into Fedora was not successful: " + msg);
+                    Helper.setFehlerMeldung(null, process.getTitel() + ": ", "The ingest into Fedora was not successful: " + msg);
+                    return false;
+            }
+        }
+        return true;
+    }
 
     /**
      * Adds the given binary file to Fedora
@@ -365,8 +372,11 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     // Add new version (POST operation)
                     // "Slug" is the version name attribute
                     // "Content-Disposition" attribute contains the file name
-                    response = target.path("fcr:versions").request().header("Slug", version).header("Content-Disposition", "attachment; filename=\""
-                            + file.getFileName().toString() + "\"").post(Entity.entity(inputStream, mimeType));
+                    response = target.path("fcr:versions")
+                            .request()
+                            .header("Slug", version)
+                            .header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"")
+                            .post(Entity.entity(inputStream, mimeType));
                 } else {
                     // No versioning: Delete file so it can be replaced (DELETE operation)
                     // TODO This part is obsolete because the entire container is now deleted if it already exists (much faster)
@@ -383,7 +393,8 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     if (response.getStatus() == 204) {
                         // Add file again (PUT operation)
                         // "Content-Disposition" attribute contains the file name
-                        response = target.request().header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"")
+                        response = target.request()
+                                .header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"")
                                 .put(fileEntity);
                     } else {
                         // Error
@@ -396,8 +407,9 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             } else {
                 // File does not exist yet, so just add it (PUT operation)
                 // "Content-Disposition" attribute contains the file name
-                response = target.request().header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"").put(
-                        fileEntity);
+                response = target.request()
+                        .header("Content-Disposition", "attachment; filename=\"" + file.getFileName().toString() + "\"")
+                        .put(fileEntity);
             }
             // Handle response to the file adding operation (both versioned or not)
             switch (response.getStatus()) {
@@ -405,8 +417,8 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     if (exists) {
                         if (version != null) {
                             // Successfully added new version
-                            log.debug("New resource version " + version + " added: " + response.getHeaderString("location").replace(transactionUrl,
-                                    fedoraUrl));
+                            log.debug("New resource version " + version + " added: "
+                                    + response.getHeaderString("location").replace(transactionUrl, fedoraUrl));
                         } else {
                             // Successfully deleted and re-added file
                             log.debug("Resource updated: " + response.getHeaderString("location").replace(transactionUrl, fedoraUrl));
@@ -457,8 +469,8 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
                     default:
                         // Error
                         String body = IOUtils.toString(httpResponse.getEntity().getContent(), "UTF-8");
-                        log.error(httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - "
-                                + body);
+                        log.error(
+                                httpResponse.getStatusLine().getStatusCode() + ": " + httpResponse.getStatusLine().getReasonPhrase() + " - " + body);
                         return false;
                 }
             }
@@ -472,6 +484,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     /**
      * Generates METS file from the given process.
+     * 
      * @param process
      * @param destination Target path
      * @return
@@ -481,8 +494,8 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
      * @throws IOException
      * @throws SwapException
      */
-    private Path createMetsFile(Process process, String destination) throws UGHException, DAOException, InterruptedException, IOException,
-            SwapException {
+    private Path createMetsFile(Process process, String destination)
+            throws UGHException, DAOException, InterruptedException, IOException, SwapException {
         Prefs prefs = process.getRegelsatz().getPreferences();
         Fileformat fileformat = process.readMetadataFile();
 
@@ -497,7 +510,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
             Helper.setMeldung(process.getTitel() + ": Digital document does not contain images; temporarily adding them for mets file creation");
             mih.createPagination(process, null);
         } else {
-            mih.checkImageNames(process);
+            mih.checkImageNames(process, null);
         }
 
         mm.setDigitalDocument(dd);
@@ -551,6 +564,7 @@ public class FedoraExportPlugin implements IExportPlugin, IPlugin {
 
     /**
      * Replaces Goobi-generated file URLs in PRESENATATION (and FEDORA) METS file groups with URLs generated in this profile.
+     * 
      * @param metsfile
      */
     private void overwriteUrls(String metsfile) {
