@@ -1,1 +1,0 @@
-goobi-plugin-export-fedora/README.md
