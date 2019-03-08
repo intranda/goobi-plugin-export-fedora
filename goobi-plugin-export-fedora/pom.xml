@@ -6,7 +6,7 @@
 	<artifactId>fedora</artifactId>
 	<version>1.0.0</version>
 	<properties>
-		<jar.name>plugin_intranda_esport_fedora</jar.name>
+		<jar.name>plugin_intranda_export_fedora</jar.name>
 		<dest.folder>/opt/digiverso/goobi/plugins/export/</dest.folder>
 	</properties>
 	<distributionManagement>
