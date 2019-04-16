@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+
+<project name="goobi-plugin-step-mixedocr">
+	<target name="devbuild">
+		<exec executable="mvn">
+			<arg value="package" />
+		</exec>
+		<copy file="target/plugin_intranda_export_fedora.jar" todir="/opt/digiverso/goobi/plugins/export/"/>
+	</target>
+</project>
