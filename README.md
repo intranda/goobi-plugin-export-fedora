@@ -1,17 +1,22 @@
-# Goobi workflow Plugin: Fedora Export
+# Goobi workflow Plugin: goobi-plugin-export-fedora
+
+<img src="https://goobi.io/wp-content/uploads/logo_goobi_plugin.png" align="right" style="margin:0 0 20px 20px;" alt="Plugin for Goobi workflow" width="175" height="109">
 
 This is the Goobi Plugin for the export of Goobi processes into a Fedora Repository. It was implemented as a generic solution and might be adapted for individual use cases.
 
+This is a plugin for Goobi workflow, the open source workflow tracking software for digitisation projects. More information about Goobi workflow is available under https://goobi.io. If you want to get in touch with the user community simply go to https://community.goobi.io.
+
 ## Plugin details
 
-More information about the functionality of this plugin and the complete documentation can be found in the central documentation area at https://docs.intranda.com
+More information about the functionality of this plugin and the complete documentation can be found in the central documentation area at https://docs.goobi.io
 
 Detail | Description
 --- | ---
 **Plugin identifier**       | plugin_intranda_export_fedora
 **Plugin type**             | Export plugin
-**Documentation (German)**  | https://docs.intranda.com/goobi-workflow-plugins-de/export-plugins/plugin_intranda_export_fedora
-**Documentation (English)** | - still to be translated -
+**Licence**                 | GPL 2.0 or newer  
+**Documentation (German)**  | https://docs.goobi.io/goobi-workflow-plugins-de/export/plugin_intranda_export_fedora
+**Documentation (English)** | https://docs.goobi.io/goobi-workflow-plugins-en/export/plugin_intranda_export_fedora
 
 ## Goobi details
 
