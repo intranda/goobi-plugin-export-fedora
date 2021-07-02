@@ -6,7 +6,7 @@
   <properties>
     <jar.name>plugin_intranda_export_fedora</jar.name>
     <dest.folder>/opt/digiverso/goobi/plugins/export/</dest.folder>
-    <goobi.version>21.06.5</goobi.version>
+    <goobi.version>21.06.6</goobi.version>
   </properties>
   <distributionManagement>
     <repository>
@@ -82,6 +82,7 @@
                   <Implementation-Version>${project.version}</Implementation-Version>
                   <Implementation-SCM-Revision>${buildNumber}</Implementation-SCM-Revision>
                   <Implementation-SCM-Branch>${scmBranch}</Implementation-SCM-Branch>
+                  <Goobi-Version>${goobi.version}</Goobi-Version>
                 </manifestEntries>
               </manifestSection>
             </manifestSections>
