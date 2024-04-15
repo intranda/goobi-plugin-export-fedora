@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config_plugin>
+    <!-- fedoraUrl: REST endpoint of the target Fedora application. -->
+	<fedoraUrl>http://localhost:8888/fedora/rest</fedoraUrl>
+	<!-- userVersioning: If true, for each run of the export step, a new revision of the process will be created. Default is true. -->
+	<useVersioning>true</useVersioning>
+	<!-- ingestMasterImages: If true, master images of the Goobi process will be ingested into the container /master. Default is true. -->
+	<ingestMasterImages>true</ingestMasterImages>
+	<!-- ingestMediaImages: If true, derivate images of the Goobi process will be ingested into the container /media. Default is true. -->
+	<ingestMediaImages>true</ingestMediaImages>
+	<!-- ingestMetsFile: If true, a METS/MODS file will be generated and ingested. Default is true. -->
+	<ingestMetsFile>true</ingestMetsFile>
+	<!-- exportMetsFile: If true, the METS/MODS file will be exported into the given destination folder. Default is true. -->
+	<exportMetsFile>true</exportMetsFile>
+</config_plugin>
