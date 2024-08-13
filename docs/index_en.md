@@ -11,6 +11,8 @@ This documentation describes the installation, configuration and use of the Fedo
 ## Installation
 The plugin must be installed in the following folder:
 
+![Integration of the plugin into the workflow](screen1_en.png)
+
 ```bash
 /opt/digiverso/goobi/plugins/export/plugin_intranda_export_fedora*.jar
 ```

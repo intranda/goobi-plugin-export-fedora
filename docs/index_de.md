@@ -11,6 +11,8 @@ Die vorliegende Dokumentation beschreibt die Installation, die Konfiguration und
 ## Installation
 Das Plugin muss in den folgenden Ordner installiert werden:
 
+![Integration des Plugins in den Workflow](screen1_de.png)
+
 ```bash
 /opt/digiverso/goobi/plugins/export/plugin_intranda_export_fedora*.jar
 ```
