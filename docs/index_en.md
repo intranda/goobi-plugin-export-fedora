@@ -3,6 +3,10 @@ title: Fedora Export
 identifier: intranda_export_fedora
 published: true
 description: Goobi plugin for exporting Goobi processes to a Fedora repository
+keywords:
+    - Goobi workflow
+    - Plugin
+    - Export Plugin
 ---
 ## Introduction
 This documentation describes the installation, configuration and use of the Fedora Export Plugin in Goobi workflow.
